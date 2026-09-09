@@ -167,7 +167,7 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
           map: mapName,
           roam: false,
           layoutCenter: ['50%', '50%'],
-          layoutSize: '88%',
+          layoutSize: '94%',
           label: { show: false },
           itemStyle: {
             areaColor: '#EDF1F6',
@@ -240,10 +240,11 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
   }, [p.selectedProvince, p.data, totalCount])
 
   const maxProvVal = top10[0]?.value || 1
+  const chartHeight = p.height ?? 680
 
   const mapCard = (
-    <div className="bg-white rounded-card shadow-card overflow-hidden">
-      <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-2">
+    <div className="bg-white rounded-card shadow-card overflow-hidden h-full flex flex-col">
+      <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-2 flex-none">
         <div className="flex items-start gap-3 min-w-0">
           <span
             className={`shrink-0 grid place-items-center w-10 h-10 rounded-xl ${
@@ -260,12 +261,18 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
         </div>
       </div>
       {takeawayText && (
-        <p className="px-6 pt-1 pb-1 text-[15px] sm:text-base text-slate-600 leading-relaxed max-w-[75ch]">
+        <p className="px-6 pt-1 pb-1 text-[15px] sm:text-base text-slate-600 leading-relaxed max-w-[75ch] flex-none">
           {takeawayText}
         </p>
       )}
-      <div className="px-3 pb-4 sm:px-4 sm:pb-5">
-        <ReactECharts option={option} onEvents={onEvents} style={{ height, width: '100%' }} notMerge lazyUpdate />
+      <div className="px-3 pb-4 sm:px-4 sm:pb-6 flex-1 flex flex-col min-h-[640px] lg:min-h-[740px]">
+        <ReactECharts
+          option={option}
+          onEvents={onEvents}
+          style={{ height: '100%', minHeight: chartHeight, width: '100%', flex: 1 }}
+          notMerge
+          lazyUpdate
+        />
       </div>
     </div>
   )
@@ -275,9 +282,9 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
       {/* Main Map Card */}
-      <div className="lg:col-span-2 min-w-0">{mapCard}</div>
+      <div className="lg:col-span-2 min-w-0 flex flex-col">{mapCard}</div>
 
       {/* Side Companion Cards */}
       <div className="lg:col-span-1 min-w-0 flex flex-col gap-6">

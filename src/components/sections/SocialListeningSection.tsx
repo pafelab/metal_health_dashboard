@@ -78,7 +78,7 @@ const ASSISTANCE_ORDER = [
 const SUICIDE_AGE_ORDER = ['ต่ำกว่า 18', '≥ 18 ปี']
 
 function Span({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={className}>{children}</div>
+  return <div className={`h-full flex flex-col ${className}`}>{children}</div>
 }
 
 const GRID = 'grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4'

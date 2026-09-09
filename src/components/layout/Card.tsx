@@ -33,9 +33,9 @@ export default function Card({
   const hasHeader = title !== undefined || subtitle !== undefined || Icon !== undefined || right !== undefined
 
   return (
-    <div className={`bg-white rounded-card shadow-card ${className}`}>
+    <div className={`bg-white rounded-card shadow-card h-full flex flex-col ${className}`}>
       {hasHeader && (
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
+        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3 flex-none">
           <div className="flex items-start gap-3 min-w-0">
             {Icon && (
               <span
@@ -55,7 +55,7 @@ export default function Card({
           {right !== undefined && <div className="shrink-0">{right}</div>}
         </div>
       )}
-      <div className={`px-6 pb-6 ${hasHeader ? '' : 'pt-6'} ${bodyClassName}`}>{children}</div>
+      <div className={`px-6 pb-6 flex-1 flex flex-col ${hasHeader ? '' : 'pt-6'} ${bodyClassName}`}>{children}</div>
     </div>
   )
 }

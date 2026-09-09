@@ -50,8 +50,8 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
 
     return {
       textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE },
-      grid: { left: horizontal ? 150 : 50, right: horizontal ? 60 : 20, top: 44, bottom: horizontal ? 20 : 84, containLabel: true },
-      legend: { top: 0, textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE } },
+      grid: { left: horizontal ? 150 : 30, right: horizontal ? 60 : 20, top: 56, bottom: 16, containLabel: true },
+      legend: { top: 4, textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE } },
       tooltip: { trigger: 'axis' as const, axisPointer: { type: 'shadow' as const } },
       xAxis: horizontal ? valAxis : catAxis,
       yAxis: horizontal ? catAxis : valAxis,
@@ -95,9 +95,11 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
       right={<Switcher current={type} onChange={setType} />}
     >
       {type === 'table' ? (
-        <TableView rows={rows} totalDeaths={totalDeaths} totalInjured={totalInjured} maxVal={maxVal} />
+        <div className="flex-1 flex flex-col justify-center">
+          <TableView rows={rows} totalDeaths={totalDeaths} totalInjured={totalInjured} maxVal={maxVal} />
+        </div>
       ) : (
-        <ReactECharts option={option} style={{ height: 340 }} notMerge lazyUpdate />
+        <ReactECharts option={option} style={{ height: '100%', minHeight: 340, flex: 1 }} notMerge lazyUpdate />
       )}
     </Card>
   )
