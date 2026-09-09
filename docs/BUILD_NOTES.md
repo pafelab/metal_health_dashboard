@@ -243,3 +243,71 @@ owner prefers the original behaviour.
     npx tsx --tsconfig tsconfig.app.json scripts/verify-data.ts  -> 128/128 PASS
 Bundle: app 214 kB gzip · thailand-geo 382 kB gzip · echarts 352 kB gzip
 (was a single 950 kB gzip chunk before `manualChunks`).
+
+## Responsive audit (2026-09-09) — 5 pages × 13 viewport widths, measured not eyeballed
+
+Driven headlessly over CDP (`--headless=new` + `Emulation.setDeviceMetricsOverride`, which fires a
+real window resize) at 320/360/390/414/640/768/1024/1280/1300/1366/1400/1440/1920. 65 page×width
+combinations, each checked for: elements escaping the viewport (ignoring anything inside an
+`overflow-x` scroller or a `position:fixed` ancestor), ECharts instances whose zrender surface
+disagrees with its container, tables not inside a scroller, and card-title clientWidth.
+
+**Do NOT audit layout through a background browser tab.** `echarts-for-react@3.0.6` resolves
+`initEchartsInstance()` on ECharts' `'finished'` event, which is rAF-driven. In a tab where
+`document.hidden === true` (any non-selected tab) that promise never settles: no canvas is ever
+painted, `size-sensor`'s `bind()` is never reached, and every chart looks like it has a broken
+autoResize. That produced a completely false "ECharts never resizes" reading. Headless (always
+visible) shows 0 unpainted and 0 container/surface mismatches at all 13 widths.
+
+Five real defects were found and fixed:
+
+1. **`grid` with no `grid-cols-1`** (`McattPage`, `ContactPage`, `ReportPage`). Below the first
+   `sm:`/`md:` breakpoint these had no `grid-template-columns` at all, so the implicit `auto` track
+   kept its min-content floor. Thai has no word spaces, so one agency name's min-content is the
+   whole string: the MCATT person grid measured 390px wide inside a 310px card and pushed 241
+   elements off-screen at 390px (417 at 320px). `grid-cols-1` is `repeat(1,minmax(0,1fr))`, which
+   removes the floor and lets the existing `truncate` do its job. This is why 640px looked fine —
+   `sm:grid-cols-2` already used `minmax(0,1fr)`.
+2. **FilterBar's `xl:grid-cols-6`** gave the คัดกรอง+ล้าง pair a 152px track for ~178px of
+   content, so ล้าง hung 27px off the right edge for every width from 1280 to ~1439 — i.e. exactly
+   the 1280/1366/1400 laptops. Now `xl:grid-cols-[repeat(5,minmax(0,1fr))_minmax(max-content,1fr)]`:
+   the button track can't go below its content width but still shares free space, so ≥1440 looks
+   the same as before.
+3. **`Card`'s header could not wrap.** `right` (usually ChartTypeSwitcher, up to six icon buttons)
+   is `shrink-0`, so the `min-w-0 truncate` title absorbed the whole shortfall: measured 3 dashboard
+   titles at literally **0px** wide at 390px, 1 at 768px and **8 at 1024px**, plus 8 more under
+   60px. No horizontal overflow, so an overflow-only check called it clean — titles must be
+   measured. Now `flex-wrap xl:flex-nowrap` + `ml-auto` on the right slot, so the switcher drops to
+   its own right-aligned line precisely when the untruncated title would not fit beside it.
+   Result: 0 zero-width titles at every width; ≥1280 keeps its single-line header (worst case there
+   is 86px of title, which is legible).
+4. **ReportPage's Alert-card actions** (ดูรูปเต็มจอ + ดาวน์โหลด) are 288px of `shrink-0` content,
+   which overflowed at 320px and starved the title to 5 glyphs at 390px. Labels are now
+   `hidden sm:inline`, matching what PageHeader already does with โหลดข้อมูลใหม่ and what FormCard's
+   header already looks like.
+5. **The sticky FilterBar covered the phone screen — SPEC-ADJACENT, owner should confirm.** Nothing
+   in a horizontal-overflow audit can see this; it needs the bar's height against the viewport.
+   Measured `sticky` heights: 569px at 390×820, so header+bar pinned **641px of 820 = 78%** of the
+   screen and the first card's title sat behind it; at 640×360 (landscape phone) the 445px pinned
+   block is **taller than the whole viewport (124%)**, which puts คัดกรอง permanently off-screen and
+   makes the bar unusable. From `md` up the bar is at most two rows — 215px at 768 (28%), 139px at
+   1280 (26%) — which is fine. Changed `sticky` → `md:sticky` in `FilterBar.tsx`, so on phones the
+   bar scrolls away like normal content and stays pinned everywhere it fits. `top` is inert while
+   the element is static, so no second breakpoint was needed. **SPEC 5.2 says "sticky" without
+   qualification**, so this narrows the spec's literal wording on phones only; revert by dropping
+   the `md:` prefix if the owner wants it pinned at every width.
+
+Verified-correct, no change needed: sidebar is a drawer below `lg` and a fixed 256px column at
+≥1024 at every width tested; all 3 dashboard / 4 zone tables sit in `overflow-x` scrollers and
+actually scroll on phones; every section grid collapses 4 → 2 → 1; all 16 charts resize with their
+container at every width.
+
+**Reported, deliberately NOT changed:** category axis labels collide on narrow charts (~330px wide
+at 768px, 2-up grid) because `chartOptions.ts` sets `interval: 0` with `hideOverlap: false` — every
+label always renders, wrapped by `wrapThaiLabel`. That is an explicit "show all labels" choice, so
+trading it for `hideOverlap: true` (legible but some labels hidden) is the owner's call, not a bug
+fix. Also unchanged: touch-target sizes below the 44px guideline — the 24×24 hamburger, 23px `tel:`
+links on MCATT, 26px "เปิดลิงก์" links — which is an a11y question, not a layout one.
+
+Re-verified after the fixes: 65/65 combinations with zero escaping elements, zero unpainted or
+mis-sized charts, zero unwrapped wide tables; `tsc` clean; `vite build` clean; data gate 128/128.
