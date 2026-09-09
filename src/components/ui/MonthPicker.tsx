@@ -1,0 +1,283 @@
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { THAI_MONTHS, MONTH_ABBR } from '@/config'
+
+const ENG_MONTH_ABBR = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
+
+export interface MonthPickerProps {
+  id?: string
+  value: string // 'YYYY-MM' in Buddhist Year, e.g. '2569-06', or ''
+  onChange: (value: string) => void
+  placeholder?: string
+  accentColor?: 's1' | 's2'
+  disabled?: boolean
+  className?: string
+}
+
+export default function MonthPicker({
+  id,
+  value,
+  onChange,
+  placeholder = 'เลือกเดือน (พ.ศ.)',
+  accentColor = 's1',
+  disabled = false,
+  className = '',
+}: MonthPickerProps) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  const now = new Date()
+  const defaultYear = now.getFullYear() + 543 // Buddhist Year
+
+  // Parse 'YYYY-MM' (Buddhist Year)
+  const parsed = useMemo(() => {
+    if (!value || !value.trim()) return null
+    const m = /^(\d{4})-(\d{1,2})$/.exec(value.trim())
+    if (!m) return null
+    return {
+      year: parseInt(m[1], 10),
+      month: parseInt(m[2], 10),
+    }
+  }, [value])
+
+  const [viewYear, setViewYear] = useState<number>(parsed?.year ?? defaultYear)
+
+  // Sync viewYear when value changes
+  useEffect(() => {
+    if (parsed?.year) {
+      setViewYear(parsed.year)
+    }
+  }, [parsed?.year])
+
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Close on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('touchstart', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+    }
+  }, [isOpen])
+
+  function handleSelectMonth(monthIndex: number) {
+    const monthNum = monthIndex + 1
+    const padMonth = monthNum < 10 ? `0${monthNum}` : `${monthNum}`
+    onChange(`${viewYear}-${padMonth}`)
+    setIsOpen(false)
+  }
+
+  function handleClear(e: React.MouseEvent) {
+    e.stopPropagation()
+    onChange('')
+  }
+
+  function handleSetThisMonth() {
+    const currCeYear = now.getFullYear()
+    const currBeYear = currCeYear + 543
+    const currMonth = now.getMonth() + 1
+    const padMonth = currMonth < 10 ? `0${currMonth}` : `${currMonth}`
+    onChange(`${currBeYear}-${padMonth}`)
+    setIsOpen(false)
+  }
+
+  // Display text on trigger button
+  const displayLabel = useMemo(() => {
+    if (!parsed) return null
+    const idx = parsed.month - 1
+    const thName = THAI_MONTHS[idx] ?? ''
+    const enAbbr = ENG_MONTH_ABBR[idx] ?? ''
+    const ceYear = parsed.year - 543
+    return `${thName} ${parsed.year} (${enAbbr} ${ceYear})`
+  }, [parsed])
+
+  const ringColor =
+    accentColor === 's2'
+      ? 'focus:ring-s2-300 focus:border-s2-400'
+      : 'focus:ring-s1-300 focus:border-s1-400'
+  const activeBg =
+    accentColor === 's2'
+      ? 'bg-s2-600 text-white shadow-md shadow-blue-500/25'
+      : 'bg-s1-600 text-white shadow-md shadow-orange-500/25'
+  const hoverBg =
+    accentColor === 's2' ? 'hover:bg-s2-50 hover:text-s2-700' : 'hover:bg-s1-50 hover:text-s1-700'
+  const currentMonthBorder =
+    accentColor === 's2' ? 'border-s2-400 text-s2-700' : 'border-s1-400 text-s1-700'
+
+  // Quick years around viewYear
+  const quickYears = [viewYear - 1, viewYear, viewYear + 1]
+
+  return (
+    <div ref={containerRef} className={`relative w-full ${className}`}>
+      {/* Trigger Button */}
+      <button
+        type="button"
+        id={id}
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen((prev) => !prev)}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        className={`w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-body text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 ${ringColor} transition-all text-left shadow-sm ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'cursor-pointer'
+        }`}
+      >
+        <span className={`truncate mr-2 ${!displayLabel ? 'text-slate-400 font-normal' : 'font-medium'}`}>
+          {displayLabel || placeholder}
+        </span>
+        <div className="flex items-center gap-1.5 shrink-0 text-slate-400">
+          {value && !disabled && (
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label="ล้างการเลือกเดือน"
+              onClick={handleClear}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation()
+                  onChange('')
+                }
+              }}
+              className="p-0.5 rounded-full hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
+            >
+              <X size={14} />
+            </span>
+          )}
+          <Calendar size={16} className={`transition-colors ${isOpen ? 'text-slate-700' : ''}`} />
+        </div>
+      </button>
+
+      {/* Custom Month Picker Popover */}
+      {isOpen && (
+        <div
+          role="dialog"
+          aria-label="เลือกเดือนและปี"
+          className="absolute left-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-3.5 w-72 sm:w-80 animate-in fade-in zoom-in-95 duration-100"
+        >
+          {/* Year Navigation Header */}
+          <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+            <button
+              type="button"
+              onClick={() => setViewYear((y) => y - 1)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+              title="ปีก่อนหน้า"
+            >
+              <ChevronLeft size={18} />
+            </button>
+
+            <div className="text-center">
+              <div className="text-base font-bold text-slate-800">
+                พ.ศ. {viewYear}
+              </div>
+              <div className="text-xs text-slate-400 font-medium">
+                (A.D. {viewYear - 543})
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setViewYear((y) => y + 1)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+              title="ปีถัดไป"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+
+          {/* Quick Year Pill Bar */}
+          <div className="flex items-center justify-center gap-1.5 mb-3">
+            {quickYears.map((y) => (
+              <button
+                key={y}
+                type="button"
+                onClick={() => setViewYear(y)}
+                className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${
+                  y === viewYear
+                    ? 'bg-slate-800 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+
+          {/* 12 Months Grid */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {THAI_MONTHS.map((thMonth, idx) => {
+              const isSelected = parsed?.year === viewYear && parsed?.month === idx + 1
+              const isCurrentMonth =
+                viewYear === now.getFullYear() + 543 && idx === now.getMonth()
+              const abbr = MONTH_ABBR[idx]
+              const enAbbr = ENG_MONTH_ABBR[idx]
+
+              return (
+                <button
+                  key={thMonth}
+                  type="button"
+                  onClick={() => handleSelectMonth(idx)}
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${
+                    isSelected
+                      ? activeBg
+                      : isCurrentMonth
+                        ? `border border-dashed ${currentMonthBorder} ${hoverBg}`
+                        : `text-slate-700 bg-slate-50/70 hover:bg-slate-100 ${hoverBg}`
+                  }`}
+                >
+                  <span className={`text-sm font-semibold ${isSelected ? 'text-white' : ''}`}>
+                    {abbr}
+                  </span>
+                  <span
+                    className={`text-[11px] mt-0.5 ${
+                      isSelected ? 'text-white/80' : 'text-slate-400'
+                    }`}
+                  >
+                    {enAbbr}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs font-medium">
+            <button
+              type="button"
+              onClick={handleClear}
+              className="text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              ล้างค่า (Clear)
+            </button>
+            <button
+              type="button"
+              onClick={handleSetThisMonth}
+              className="text-slate-700 hover:text-slate-950 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer font-semibold"
+            >
+              เดือนนี้ (This Month)
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

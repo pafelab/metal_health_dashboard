@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Prompt:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Force Poppins font across the application with Prompt for Thai */
+html,
+body,
+#root,
+button,
+input,
+optgroup,
+select,
+textarea {
+  font-family: 'Poppins', 'Prompt', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+@layer base {
+  html {
+    font-size: 18px;
+  }
+
+  body {
+    @apply bg-canvas text-slate-800 text-body antialiased;
+  }
+
+  /* Visible focus rings everywhere (keyboard nav on the filter bar, sidebar, chart switcher). */
+  :focus-visible {
+    outline: 2px solid #ea580c;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: #fed7aa;
+    color: #1e293b;
+  }
+}
+
+@layer utilities {
+  /* Thin custom scrollbar for the sidebar, tables and any overflow-x container. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 9999px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+  }
+}
+
+/* Apply the thin scrollbar globally too, so untouched overflow containers still look right. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* Card fade-in on mount (used by Card.tsx / widget grids). */
+@keyframes card-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-in {
+  animation: card-fade-in 0.35s ease-out both;
+}
+
+/* Loading-overlay pulse (SPEC 3.1 loading overlay while fetching). */
+@keyframes loading-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-loading-pulse {
+  animation: loading-pulse 1.4s ease-in-out infinite;
+}

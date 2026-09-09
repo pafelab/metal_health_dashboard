@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=ai-legible&utm_source=comment&utm_medium=referral&utm_id=5c790c75-fc3f-4b51-990a-c381c786bc2d
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. -->
+<meta name="hosting-provider" content="Netlify">
+<meta name="netlify-deploy" content="https://netlify.new/?utm_campaign=ai-legible&amp;utm_source=meta&amp;utm_medium=referral&amp;utm_id=5c790c75-fc3f-4b51-990a-c381c786bc2d">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard สุขภาพจิต (Social Listening)</title>
+    
+    <!-- Libraries -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#E65100', // Orange Theme
+                        secondary: '#FF9800',
+                        bgSoft: '#F9FAFB',
+                        accent: '#F59E0B'
+                    },
+                    fontFamily: { sans: ['Sarabun', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #F9FAFB; }
+        .chart-container { position: relative; height: 260px; width: 100%; }
+        .chart-container-tall { position: relative; height: 350px; width: 100%; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        .glass-card { background: white; border-radius: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid #f1f5f9; }
+        .btn-hover { transition: all 0.2s ease; }
+        .btn-hover:active { transform: scale(0.95); }
+        
+        /* Tooltip Styles (Top Positioned) */
+        .tooltip-container { position: relative; cursor: help; display: inline-flex; align-items: center; justify-content: center;}
+        .tooltip-box {
+            position: absolute;
+            bottom: calc(100% + 15px); /* Position Above */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 320px;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 50;
+            pointer-events: none;
+            text-align: left;
+        }
+        .tooltip-container:hover .tooltip-box { opacity: 1; visibility: visible; bottom: calc(100% + 20px); }
+        /* Arrow Pointing Down */
+        .tooltip-box::after {
+            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -8px;
+            border-width: 8px; border-style: solid; border-color: white transparent transparent transparent;
+        }
+        .tooltip-box::before {
+            content: ''; position: absolute; top: 100%; left: 50%; margin-left: -9px;
+            border-width: 9px; border-style: solid; border-color: #e2e8f0 transparent transparent transparent; z-index: -1;
+        }
+
+        /* Map Tooltip */
+        .map-tooltip {
+            position: absolute; visibility: hidden; background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); font-family: 'Sarabun';
+            font-size: 13px; pointer-events: none; z-index: 1000;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden text-slate-800">
+
+    <div id="globalLoader" class="fixed inset-0 bg-white/95 backdrop-blur-sm z-[99999] flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="relative w-16 h-16 flex items-center justify-center mb-4">
+            <div class="absolute inset-0 border-4 border-orange-100 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-orange-500 rounded-full border-t-transparent animate-spin"></div>
+        </div>
+        <h2 class="text-xl font-bold text-slate-800">กำลังประมวลผลข้อมูล...</h2>
+        <p class="text-sm text-slate-500 mt-2">กรุณารอสักครู่</p>
+    </div>
+
+    <header class="bg-white px-6 py-4 flex justify-between items-center z-20 sticky top-0 shrink-0 border-b border-slate-100 shadow-sm">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-orange-600">
+                <i class="fa-solid fa-chart-pie text-2xl"></i>
+            </div>
+            <div class="flex flex-col">
+                <h1 class="text-2xl font-bold text-slate-800 tracking-wide">Social Listening ปีงบประมาณ 2569</h1>
+                <span class="text-xs text-orange-600 font-bold uppercase">MHSO / DMH (Social Listening & Others)</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full font-medium" id="lastUpdate">อัปเดต: กำลังโหลด...</div>
+            <button onclick="triggerDataReload()" class="bg-slate-800 text-white px-4 py-2 rounded-lg shadow-sm hover:bg-slate-700 btn-hover flex items-center gap-2 text-sm font-bold">
+                <i class="fa-solid fa-rotate-right" id="reloadIconMain"></i> โหลดข้อมูลใหม่
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6 bg-[#F9FAFB]">
+        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-wrap items-end gap-4 mb-8 sticky top-0 z-30">
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-bold text-slate-500 mb-1.5"><i class="fa-regular fa-calendar text-blue-500 mr-1"></i>ตั้งแต่เดือน</label>
+                <input type="month" id="mainStartDate" onchange="applyMainFilters()" class="w-full border border-slate-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-orange-100 outline-none bg-slate-50">
+            </div>
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-bold text-slate-500 mb-1.5"><i class="fa-regular fa-calendar-check text-blue-500 mr-1"></i>ถึงเดือน</label>
+                <input type="month" id="mainEndDate" onchange="applyMainFilters()" class="w-full border border-slate-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-orange-100 outline-none bg-slate-50">
+            </div>
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-bold text-slate-500 mb-1.5"><i class="fa-solid fa-map text-emerald-500 mr-1"></i>เขตสุขภาพ</label>
+                <select id="mainZoneSelect" onchange="updateMainProvDropdown(); applyMainFilters();" class="w-full border border-slate-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-emerald-100 outline-none bg-emerald-50/30 text-emerald-800 font-medium">
+                    <option value="all">ทั้งหมด</option>
+                </select>
+            </div>
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-bold text-slate-500 mb-1.5"><i class="fa-solid fa-location-dot text-rose-500 mr-1"></i>จังหวัด</label>
+                <select id="mainProvinceSelect" onchange="applyMainFilters()" class="w-full border border-slate-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-rose-100 outline-none bg-slate-50">
+                    <option value="all">ทั้งหมด</option>
+                </select>
+            </div>
+            <div class="flex-1 min-w-[160px]">
+                <label class="block text-xs font-bold text-slate-500 mb-1.5"><i class="fa-solid fa-fire text-red-500 mr-1"></i>ประเภทภัย</label>
+                <select id="mainHazardSelect" onchange="applyMainFilters()" class="w-full border border-slate-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-red-100 outline-none bg-slate-50 font-medium">
+                    <option value="all" selected>ทั้งหมด</option>
+                    <option value="Social Listening">Social Listening</option>
+                    <option value="ภัยอื่นๆ">ภัยอื่นๆ (รวม)</option>
+                    <option value="ภัยชีวภาพ">- ภัยชีวภาพ</option>
+                    <option value="ภัยเคมีและรังสี">- ภัยเคมีและรังสี</option>
+                    <option value="ภัยธรรมชาติ">- ภัยธรรมชาติ</option>
+                    <option value="ภัยสิ่งแวดล้อม">- ภัยสิ่งแวดล้อม</option>
+                    <option value="อุบัติเหตุขนส่ง">- อุบัติเหตุขนส่ง</option>
+                    <option value="ความมั่นคง">- ความมั่นคง</option>
+                </select>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="applyMainFilters()" class="bg-slate-800 text-white px-6 py-2 rounded-full btn-hover text-sm font-bold flex items-center gap-2 shadow-sm"><i class="fa-solid fa-filter"></i> คัดกรอง</button>
+                <button onclick="clearMainFilters()" class="bg-rose-500 text-white px-6 py-2 rounded-full btn-hover text-sm font-bold flex items-center gap-2 shadow-sm"><i class="fa-solid fa-rotate-left"></i> ล้าง</button>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- SECTION 1: SOCIAL LISTENING -->
+        <!-- ========================================== -->
+        <div id="section-sl" class="glass-card p-8 mb-8 relative overflow-hidden">
+            <div class="flex items-center gap-3 border-b border-orange-100 pb-4 mb-8">
+                <div class="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
+                    <i class="fa-solid fa-satellite-dish text-xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-800">ส่วนที่ 1: ข้อมูล Social Listening</h2>
+            </div>
+
+            <!-- Risk Factors & Warning Signs (Pill UI Design) -->
+            <div id="slRiskWarningContainer" class="mb-8"></div>
+
+            <!-- KPI & Tooltips -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-indigo-600 rounded-3xl p-5 text-white flex flex-col justify-center relative overflow-hidden shadow-sm">
+                    <i class="fa-solid fa-globe absolute -right-4 -bottom-4 text-7xl opacity-20"></i>
+                    <p class="text-xs font-bold text-indigo-200 mb-1 z-10">เหตุการณ์ตรวจสอบทั้งหมด</p>
+                    <div class="flex items-baseline gap-2 z-10">
+                        <h3 class="text-5xl font-black text-white" id="slKpiTotal">0</h3>
+                        <span class="text-xs font-bold text-indigo-200">เหตุการณ์</span>
+                    </div>
+                </div>
+
+                <div class="md:col-span-3 grid grid-cols-3 gap-4">
+                    <div class="bg-slate-100 rounded-3xl p-5 flex flex-col justify-center items-center text-center border border-slate-200 tooltip-container">
+                        <!-- Tooltip Box (Top) -->
+                        <div class="tooltip-box">
+                            <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-200">
+                                <i class="fa-solid fa-circle text-slate-800 text-lg"></i>
+                                <h4 class="font-bold text-slate-800 text-sm">ระดับสีดำ (รุนแรงมาก – ฉุกเฉินภายใน 1 ชม.)</h4>
+                            </div>
+                            <ul class="text-xs text-slate-600 space-y-2 font-medium">
+                                <li>- เหตุรุนแรงระดับวิกฤต เช่นยิงกราด (Mass shooting)</li>
+                                <li>- ก่อการร้าย / จับตัวประกันมีผู้เสียชีวิตจำนวนมาก / เหตุสะเทือนขวัญ</li>
+                            </ul>
+                        </div>
+                        <p class="text-sm font-bold text-slate-700 flex items-center gap-2 mb-2"><i class="fa-solid fa-circle text-slate-800 text-[12px]"></i> ระดับสีดำ</p>
+                        <h3 class="text-5xl font-black text-slate-800 my-1" id="slKpiBlack">0</h3>
+                        <p class="text-xs text-slate-500 font-bold mt-2 bg-white px-3 py-1 rounded-full shadow-sm">ตอบสนองใน 1 ชม.</p>
+                    </div>
+                    
+                    <div class="bg-rose-50 rounded-3xl p-5 flex flex-col justify-center items-center text-center border border-rose-100 tooltip-container">
+                        <!-- Tooltip Box (Top) -->
+                        <div class="tooltip-box">
+                            <div class="flex items-center gap-2 mb-3 pb-2 border-b border-rose-100">
+                                <i class="fa-solid fa-circle text-rose-500 text-lg"></i>
+                                <h4 class="font-bold text-rose-700 text-sm">ระดับสีแดง (รุนแรงสูง – ตอบสนองภายใน 24 ชม.)</h4>
+                            </div>
+                            <ul class="text-xs text-slate-600 space-y-2 font-medium">
+                                <li>- ก่อเหตุรุนแรงชัดเจน เช่น ฆาตกรรม/ทำร้ายร่างกาย</li>
+                                <li>- ฆ่าตัวตายสำเร็จ (โดยเฉพาะคนมีชื่อเสียง / กระทบสังคมสูง)</li>
+                                <li>- พฤติกรรมเสี่ยงซ้ำ มีอาวุธ หรือมีแนวโน้มทำร้ายผู้อื่น</li>
+                            </ul>
+                        </div>
+                        <p class="text-sm font-bold text-rose-700 flex items-center gap-2 mb-2"><i class="fa-solid fa-circle text-rose-500 text-[12px]"></i> ระดับสีแดง</p>
+                        <h3 class="text-5xl font-black text-rose-600 my-1" id="slKpiRed">0</h3>
+                        <p class="text-xs text-rose-600 font-bold mt-2 bg-white px-3 py-1 rounded-full shadow-sm text-rose-500">ตอบสนองใน 24 ชม.</p>
+                    </div>
+
+                    <div class="bg-amber-50 rounded-3xl p-5 flex flex-col justify-center items-center text-center border border-amber-100 tooltip-container">
+                        <!-- Tooltip Box (Top) -->
+                        <div class="tooltip-box">
+                            <div class="flex items-center gap-2 mb-3 pb-2 border-b border-amber-100">
+                                <i class="fa-solid fa-circle text-amber-400 text-lg"></i>
+                                <h4 class="font-bold text-amber-700 text-sm">ระดับสีเหลือง (รุนแรงปานกลาง – ตอบสนองภายใน 72 ชม.)</h4>
+                            </div>
+                            <ul class="text-xs text-slate-600 space-y-2 font-medium">
+                                <li>- มีแนวโน้มใช้ความรุนแรง (ยังไม่เกิดเหตุหนัก)</li>
+                                <li>- ข่มขู่ คุกคาม หรือมีความคิดฆ่าตัวตาย</li>
+                                <li>- พยายามฆ่าตัวตายแต่ไม่สำเร็จ</li>
+                                <li>- ข่าวเริ่มเป็นกระแส (engagement สูง)</li>
+                            </ul>
+                        </div>
+                        <p class="text-sm font-bold text-amber-700 flex items-center gap-2 mb-2"><i class="fa-solid fa-circle text-amber-400 text-[12px]"></i> ระดับสีเหลือง</p>
+                        <h3 class="text-5xl font-black text-amber-500 my-1" id="slKpiYellow">0</h3>
+                        <p class="text-xs text-amber-600 font-bold mt-2 bg-white px-3 py-1 rounded-full shadow-sm">ตอบสนองใน 72 ชม.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- กราฟแนวโน้มรายเดือน (Area Chart) -->
+            <div class="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm mb-8">
+                <div class="flex items-center gap-2 mb-4 bg-slate-50 p-2 rounded-xl border border-slate-100 w-fit pr-4">
+                    <div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><i class="fa-solid fa-chart-line text-sm"></i></div>
+                    <h3 class="text-sm font-bold text-slate-700">แนวโน้มจำนวนข่าวรายเดือน (ตั้งแต่ปีงบประมาณ 2569)</h3>
+                </div>
+                <div class="chart-container-tall"><canvas id="slMonthlyTrendChart"></canvas></div>
+            </div>
+
+            <!-- แผนที่ และ Top 10 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- Map -->
+                <div class="bg-white p-6 border border-slate-200 rounded-3xl shadow-sm flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600"><i class="fa-solid fa-map-location-dot text-sm"></i></div>
+                            <h3 class="text-sm font-bold text-slate-700">แผนที่ความหนาแน่นของข้อมูล (Social Listening)</h3>
+                        </div>
+                    </div>
+                    <div id="slThailandMap" class="flex-1 w-full min-h-[350px] relative bg-blue-50/30 rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center">
+                        <span class="text-slate-400 text-sm font-bold">กำลังโหลดแผนที่...</span>
+                    </div>
+                </div>
+                
+                <!-- Top 10 -->
+                <div class="bg-white p-6 border border-slate-200 rounded-3xl shadow-sm">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-600"><i class="fa-solid fa-ranking-star text-sm"></i></div>
+                        <h3 class="text-sm font-bold text-slate-700">10 อันดับ จังหวัดที่เกิดเหตุสูงสุด</h3>
+                    </div>
+                    <div class="chart-container-tall"><canvas id="slTopProvChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- ข้อมูลการฆ่าตัวตาย (Pastel Colors) -->
+            <div class="flex items-center gap-2 mt-8 mb-4 bg-rose-50 p-3 rounded-2xl border border-rose-100 w-fit pr-6">
+                <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-rose-500 shadow-sm"><i class="fa-solid fa-heart-crack text-lg"></i></div>
+                <h3 class="text-lg font-bold text-rose-700">ข้อมูลการฆ่าตัวตาย (Social Listening)</h3>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <div class="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                    <h4 class="text-xs font-bold text-slate-600 mb-4 flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center"><i class="fa-solid fa-person-falling"></i></div> สำเร็จ / ไม่สำเร็จ</h4>
+                    <div class="chart-container"><canvas id="slSuicideAttemptPieChart"></canvas></div>
+                </div>
+                <div class="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                    <h4 class="text-xs font-bold text-slate-600 mb-4 flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center"><i class="fa-solid fa-location-dot"></i></div> สถานที่</h4>
+                    <div class="chart-container"><canvas id="slSuicideLocationPieChart"></canvas></div>
+                </div>
+                <div class="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                    <h4 class="text-xs font-bold text-slate-600 mb-4 flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center"><i class="fa-solid fa-head-side-virus"></i></div> สาเหตุ</h4>
+                    <div class="chart-container"><canvas id="slSuicideCauseBarChart"></canvas></div>
+                </div>
+                <div class="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                    <h4 class="text-xs font-bold text-slate-600 mb-4 flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center"><i class="fa-solid fa-skull-crossbones"></i></div> วิธีฆ่าตัวตาย</h4>
+                    <div class="chart-container"><canvas id="slSuicideMethodBarChart"></canvas></div>
+                </div>
+            </div>
+            
+            <!-- Table SL -->
+            <div class="border border-slate-200 rounded-2xl overflow-hidden mt-6 shadow-sm">
+                <div class="bg-slate-50 p-4 border-b border-slate-200 font-bold text-sm text-slate-700 flex items-center gap-2">
+                    <i class="fa-solid fa-table text-slate-400"></i> เหตุการณ์เข้าข่ายระหว่างตรวจสอบ ( Social Listening )
+                </div>
+                <div class="overflow-x-auto max-h-[400px]">
+                    <table class="w-full text-xs text-left whitespace-nowrap">
+                        <thead class="bg-white sticky top-0 shadow-sm z-10">
+                            <tr class="text-slate-500 bg-slate-50/80 backdrop-blur-sm">
+                                <th class="p-3 border-b">ลำดับ</th><th class="p-3 border-b">วันที่</th><th class="p-3 border-b">เขต</th><th class="p-3 border-b">จังหวัด</th>
+                                <th class="p-3 border-b">หัวข้อข่าว</th><th class="p-3 border-b">แหล่งข้อมูล</th><th class="p-3 border-b">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="slTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- SECTION 2: ภัยอื่นๆ -->
+        <!-- ========================================== -->
+        <div id="section-ot" class="glass-card p-8 relative overflow-hidden">
+            <div class="flex items-center gap-3 border-b border-blue-100 pb-4 mb-8">
+                <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                    <i class="fa-solid fa-cloud-bolt text-xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-800">ส่วนที่ 2: ข้อมูลภัยอื่นๆ (6 หมวดหมู่)</h2>
+            </div>
+
+            <!-- KPI & Tooltips OT -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-blue-600 rounded-3xl p-5 text-white flex flex-col justify-center relative overflow-hidden shadow-sm">
+                    <i class="fa-solid fa-triangle-exclamation absolute -right-4 -bottom-4 text-7xl opacity-20"></i>
+                    <p class="text-xs font-bold text-blue-200 mb-1 z-10">เหตุการณ์ตรวจสอบทั้งหมด</p>
+                    <div class="flex items-baseline gap-2 z-10">
+                        <h3 class="text-5xl font-black text-white" id="otKpiTotal">0</h3>
+                        <span class="text-xs font-bold text-blue-200">เหตุการณ์</span>
+                    </div>
+                </div>
+
+                <div class="md:col-span-3 grid grid-cols-3 gap-4">
+                    <div class="bg-slate-100 rounded-3xl p-5 flex flex-col justify-center items-center text-center border border-slate-200 tooltip-container">
+                        <div class="tooltip-box">
+                            <div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-200">
+                                <i class="fa-solid fa-circle text-slate-800 text-lg"></i>
+                                <h4 class="font-bold text-slate-800 text-sm">เหตุการณ์ที่ส่งผลกระทบด้านจิตใจ ในวงกว้าง</h4>
+                            </div>
+                        </div>
+                        <p class="text-sm font-bold text-slate-700 flex items-center gap-2 mb-2"><i class="fa-solid fa-circle text-slate-800 text-[12px]"></i> ระดับสีดำ</p>
+                        <h3 class="text-5xl font-black text-slate-800 my-1" id="otKpiBlack">0</h3>
+                        <p class="text-xs text-slate-500 font-bold mt-2 bg-white px-3 py-1 rounded-full shadow-sm">ตอบสนองใน 1 ชม.</p>
+                    </div>
+                    
+                    <div class="bg-rose-50 rounded-3xl p-5 flex flex-col justify-center items-center text-center border border-rose-100 tooltip-container">
+                        <div class="tooltip-box">
+                            <div class="flex items-center gap-2 mb-3 pb-2 border-b border-rose-100">
+                                <i class="fa-solid fa-circle text-rose-500 text-lg"></i>
+                                <h4 class="font-bold text-rose-700 text-sm">ระดับสีแดง (รุนแรงมาก – ตอบสนองใน 24 ชม.)</h4>
+                            </div>
+                            <p class="text-xs text-slate-600 font-medium mb-1">ใช้กับ “อุบัติเหตุคมนาคม/ขนส่ง” เป็นหลัก อุบัติเหตุใหญ่</p>
+                            <ul class="text-xs text-slate-600 space-y-1 font-medium">
+                                <li>→ เสียชีวิต ≥ 10 คน</li>
+                                <li>→ หรือบาดเจ็บ ≥ 15 คน</li>
+                                <li>→ หรือมีผู้สูญหายจำนวนมาก</li>
+                            </ul>
+                        </div>
+                        <p class="text-sm font-bold text-rose-700 flex items-center gap-2 mb-2"><i class="fa-solid fa-circle text-rose-500 text-[12px]"></i> ระดับสีแดง</p>
+                        <h3 class="text-5xl font-black text-rose-600 my-1" id="otKpiRed">0</h3>
+                        <p class="text-xs text-rose-500 font-bold mt-2 bg-white px-3 py-1 rounded-full shadow-sm">ตอบสนองใน 24 ชม.</p>
+                    </div>
+
+                    <div class="bg-amber-50 rounded-3xl p-5 flex flex-col justify-center items-center text-center border border-amber-100 tooltip-container">
+                        <div class="tooltip-box" style="width: 350px;">
+                            <div class="flex items-center gap-2 mb-3 pb-2 border-b border-amber-100">
+                                <i class="fa-solid fa-circle text-amber-400 text-lg"></i>
+                                <h4 class="font-bold text-amber-700 text-sm">ระดับสีเหลือง (รุนแรงปานกลาง-สูง – ตอบสนองใน 72 ชม.)</h4>
+                            </div>
+                            <ul class="text-xs text-slate-600 space-y-2 font-medium leading-relaxed">
+                                <li>- มีผลกระทบต่อสุขภาพหรือความปลอดภัยของประชาชน แล้วมีผู้บาดเจ็บ / ผู้ป่วย / ผู้เสียชีวิต (แต่ยังไม่ถึงขั้นวิกฤตสูงสุด)</li>
+                                <li>- เหตุการณ์ขยายวงกว้าง ไม่ใช่เฉพาะจุดเล็ก ๆ อาจมีการอพยพ / ระบบบริการหยุดชะงัก / สิ่งแวดล้อมเสียหาย ต้องมีการเฝ้าระวังและบริหารจัดการอย่างใกล้ชิด</li>
+                            </ul>
+                        </div>
+                        <p class="text-sm font-bold text-amber-700 flex items-center gap-2 mb-2"><i class="fa-solid fa-circle text-amber-400 text-[12px]"></i> ระดับสีเหลือง</p>
+                        <h3 class="text-5xl font-black text-amber-500 my-1" id="otKpiYellow">0</h3>
+                        <p class="text-xs text-amber-600 font-bold mt-2 bg-white px-3 py-1 rounded-full shadow-sm">ตอบสนองใน 72 ชม.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                <!-- Map OT -->
+                <div class="bg-white p-6 border border-slate-200 rounded-3xl shadow-sm lg:col-span-1 flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600"><i class="fa-solid fa-map-location-dot text-sm"></i></div>
+                            <h3 class="text-sm font-bold text-slate-700">แผนที่ (ภัยอื่นๆ)</h3>
+                        </div>
+                    </div>
+                    <div id="otThailandMap" class="flex-1 w-full min-h-[350px] relative bg-blue-50/30 rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center">
+                        <span class="text-slate-400 text-sm font-bold">กำลังโหลดแผนที่...</span>
+                    </div>
+                </div>
+
+                <!-- Top 10 OT -->
+                <div class="bg-white p-6 border border-slate-200 rounded-3xl shadow-sm lg:col-span-1">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600"><i class="fa-solid fa-ranking-star text-sm"></i></div>
+                        <h3 class="text-sm font-bold text-slate-700">10 อันดับ จังหวัดที่เกิดเหตุสูงสุด</h3>
+                    </div>
+                    <div class="chart-container-tall"><canvas id="otTopProvChart"></canvas></div>
+                </div>
+                
+                <!-- สัดส่วนภัยย่อย -->
+                <div class="bg-white p-6 border border-slate-200 rounded-3xl shadow-sm lg:col-span-1">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600"><i class="fa-solid fa-layer-group text-sm"></i></div>
+                        <h3 class="text-sm font-bold text-slate-700">สัดส่วนประเภทภัย (6 หมวดหมู่)</h3>
+                    </div>
+                    <div class="chart-container-tall"><canvas id="otHazardTypePieChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Table OT -->
+            <div class="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <div class="bg-slate-50 p-4 border-b border-slate-200 font-bold text-sm text-slate-700 flex items-center gap-2">
+                    <i class="fa-solid fa-table text-slate-400"></i> เหตุการณ์เข้าข่ายระหว่างตรวจสอบ ( ภัยอื่นๆ )
+                </div>
+                <div class="overflow-x-auto max-h-[400px]">
+                    <table class="w-full text-xs text-left whitespace-nowrap">
+                        <thead class="bg-white sticky top-0 shadow-sm z-10">
+                            <tr class="text-slate-500 bg-slate-50/80 backdrop-blur-sm">
+                                <th class="p-3 border-b">ลำดับ</th><th class="p-3 border-b">วันที่</th><th class="p-3 border-b">เขต</th><th class="p-3 border-b">จังหวัด</th>
+                                <th class="p-3 border-b">ประเภทภัย</th><th class="p-3 border-b">หัวข้อข่าว</th><th class="p-3 border-b">แหล่งข้อมูล</th><th class="p-3 border-b">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="otTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="pb-10"></div>
+    </main>
+
+    <script>
+        let rawMainData = [];
+        let mainChartInstances = {};
+        
+        // --- Color Palettes ---
+        const color10Orange = ['#9A3412','#C2410C','#EA580C','#F97316','#FB923C','#FDBA74','#FED7AA','#FFEDD5','#FFF7ED','#FFFFFF'];
+        const color10Blue   = ['#1E3A8A','#1E40AF','#1D4ED8','#2563EB','#3B82F6','#60A5FA','#93C5FD','#BFDBFE','#DBEAFE','#EFF6FF'];
+        const color10Purple = ['#4C1D95','#5B21B6','#6D28D9','#7C3AED','#8B5CF6','#A78BFA','#C4B5FD','#DDD6FE','#EDE9FE','#F5F3FF'];
+        const color10Yellow = ['#713F12','#854D0E','#A16207','#CA8A04','#EAB308','#FACC15','#FDE047','#FEF08A','#FEF9C3','#FEFCE8'];
+        
+        const pastelCandy15 = ['#FFB7B2', '#FFDAC1', '#E2F0CB', '#B5EAD7', '#C7CEEA', '#F3E2A9', '#FFAAA5', '#A8E6CF', '#DCB4E3', '#F8B195', '#F67280', '#C06C84', '#6C5B7B', '#355C7D', '#99B898'];
+        const successFailColors = ['#FCA5A5', '#6EE7B7']; 
+        const hazardColors = ['#F59E0B', '#3B82F6', '#10B981', '#EF4444', '#8B5CF6', '#64748B'];
+        const sheetUrl = "https://docs.google.com/spreadsheets/d/1BZahLYr5A1t4SIcLmg6fiHA74-3PPBWU7IWp_lMyy_U/export?format=csv&gid=1523955266";
+
+        const zoneDataDef = {
+            "1": ["เชียงใหม่", "เชียงราย", "ลำพูน", "ลำปาง", "แม่ฮ่องสอน", "พะเยา", "น่าน", "แพร่"], "2": ["พิษณุโลก", "ตาก", "สุโขทัย", "อุตรดิตถ์", "เพชรบูรณ์"],
+            "3": ["นครสวรรค์", "กำแพงเพชร", "อุทัยธานี", "พิจิตร", "ชัยนาท"], "4": ["สระบุรี", "นนทบุรี", "ลพบุรี", "อ่างทอง", "นครนายก", "สิงห์บุรี", "พระนครศรีอยุธยา", "ปทุมธานี"],
+            "5": ["นครปฐม", "สุพรรณบุรี", "ราชบุรี", "กาญจนบุรี", "สมุทรสาคร", "สมุทรสงคราม", "เพชรบุรี", "ประจวบคีรีขันธ์"], "6": ["สมุทรปราการ", "ชลบุรี", "ระยอง", "จันทบุรี", "ตราด", "ฉะเชิงเทรา", "ปราจีนบุรี", "สระแก้ว"], 
+            "7": ["ขอนแก่น", "ร้อยเอ็ด", "กาฬสินธุ์", "มหาสารคาม"], "8": ["อุดรธานี", "สกลนคร", "หนองคาย", "เลย", "หนองบัวลำภู", "บึงกาฬ"],
+            "9": ["นครราชสีมา", "บุรีรัมย์", "สุรินทร์", "ชัยภูมิ"], "10": ["อุบลราชธานี", "ศรีสะเกษ", "ยโสธร", "อำนาจเจริญ", "มุกดาหาร"],
+            "11": ["สุราษฎร์ธานี", "นครศรีธรรมราช", "ภูเก็ต", "กระบี่", "พังงา", "ระนอง", "ชุมพร"], "12": ["สงขลา", "สตูล", "ตรัง", "พัทลุง", "ปัตตานี", "ยะลา", "นราธิวาส"], "13": ["กรุงเทพมหานคร"]
+        };
+
+        function getMonthNum(mStr) {
+            if(!mStr) return 0;
+            let s = mStr.toString().trim();
+            if(s.includes('ม.ค.') || s.includes('มกรา') || s === '1' || s === '01') return 1; if(s.includes('ก.พ.') || s.includes('กุมภา') || s === '2' || s === '02') return 2;
+            if(s.includes('มี.ค.') || s.includes('มีนา') || s === '3' || s === '03') return 3; if(s.includes('เม.ย.') || s.includes('เมษา') || s === '4' || s === '04') return 4;
+            if(s.includes('พ.ค.') || s.includes('พฤษภา') || s === '5' || s === '05') return 5; if(s.includes('มิ.ย.') || s.includes('มิถุนา') || s === '6' || s === '06') return 6;
+            if(s.includes('ก.ค.') || s.includes('กรกฎา') || s === '7' || s === '07') return 7; if(s.includes('ส.ค.') || s.includes('สิงหา') || s === '8' || s === '08') return 8;
+            if(s.includes('ก.ย.') || s.includes('กันยา') || s === '9' || s === '09') return 9; if(s.includes('ต.ค.') || s.includes('ตุลา') || s === '10') return 10;
+            if(s.includes('พ.ย.') || s.includes('พฤศจิกา') || s === '11') return 11; if(s.includes('ธ.ค.') || s.includes('ธันวา') || s === '12') return 12;
+            let num = parseInt(s); if(!isNaN(num) && num >= 1 && num <= 12) return num; return 0;
+        }
+
+        function getYearNum(yStr, mStr) {
+            let s = (yStr || '').toString().trim();
+            let match = s.match(/\d{4}/); if(match) { let y = parseInt(match[0]); if(y < 2500) y += 543; return y; }
+            let ms = (mStr || '').toString().trim(); match = ms.match(/\d{4}/); if(match) { let y = parseInt(match[0]); if(y < 2500) y += 543; return y; }
+            match = s.match(/\d{2}/); if(match) { let y = parseInt(match[0]); if(y >= 60 && y <= 99) return 2500 + y; if(y >= 20 && y <= 50) return 2000 + y + 543; }
+            return 0;
+        }
+        
+        function normalizeProvNameMain(name) {
+            if (!name) return "ไม่ระบุ";
+            let n = name.toString().replace(/จ\.|จังหวัด/g, '').trim();
+            let key = n.toLowerCase().replace(/[\s-]/g, ''); 
+            const thaiVars = { "กทม": "กรุงเทพมหานคร", "กทม.": "กรุงเทพมหานคร", "กรุงเทพ": "กรุงเทพมหานคร", "กรุงเทพฯ": "กรุงเทพมหานคร", "โคราช": "นครราชสีมา", "อยุธยา": "พระนครศรีอยุธยา", "เมืองคอน": "นครศรีธรรมราช", "แปดริ้ว": "ฉะเชิงเทรา", "หนองบัวลำพู": "หนองบัวลำภู", "ประจวบ": "ประจวบคีรีขันธ์", "มหาสารคราม": "มหาสารคาม" };
+            if(thaiVars[key]) return thaiVars[key];
+            return n;
+        }
+        
+        function checkDateRange(rowMonthStr, rowYearStr, startVal, endVal) {
+            if (!startVal && !endVal) return true;
+            let rM = getMonthNum(rowMonthStr), rY = getYearNum(rowYearStr, rowMonthStr);
+            if (rY === 0) return false; if (rM === 0) rM = 1; 
+            let rowTime = rY * 12 + rM, startTime = 0, endTime = 999999;
+            if (startVal) { let parts = startVal.split('-'); let sY = parseInt(parts[0]); let sM = parseInt(parts[1]); if (sY < 2500) sY += 543; startTime = sY * 12 + sM; }
+            if (endVal) { let parts = endVal.split('-'); let eY = parseInt(parts[0]); let eM = parseInt(parts[1]); if (eY < 2500) eY += 543; endTime = eY * 12 + eM; }
+            return rowTime >= startTime && rowTime <= endTime;
+        }
+
+        const isTrue = (val) => val && val !== '0' && val !== '-' && val !== 'ไม่มีข้อมูล' && val.toLowerCase() !== 'false' && val !== '';
+        const processMultiVal = (cellVal, targetObj) => {
+            let str = cellVal ? cellVal.toString().trim() : '';
+            if (str && str !== '-' && str !== 'ไม่มีข้อมูล' && str !== 'ไม่มี') {
+                str.split(/[\n,]+/).forEach(v => {
+                    let cleanV = v.trim(); if (cleanV && cleanV !== '-' && cleanV !== 'ไม่มีข้อมูล' && cleanV !== 'ไม่มี') targetObj[cleanV] = (targetObj[cleanV] || 0) + 1;
+                });
+            }
+        };
+
+        function initMainDropdowns() {
+            const zSelect = document.getElementById('mainZoneSelect');
+            for(let i=1; i<=13; i++) zSelect.innerHTML += `<option value="${i}">เขตสุขภาพที่ ${i}</option>`;
+            updateMainProvDropdown();
+        }
+
+        function updateMainProvDropdown() {
+            const zSelect = document.getElementById('mainZoneSelect').value;
+            const pSelect = document.getElementById('mainProvinceSelect');
+            pSelect.innerHTML = '<option value="all">ทั้งหมด</option>';
+            let provs = [];
+            if(zSelect === 'all') { Object.values(zoneDataDef).forEach(arr => provs.push(...arr)); provs = [...new Set(provs)].sort(); } 
+            else { provs = zoneDataDef[zSelect]; }
+            provs.forEach(p => { pSelect.innerHTML += `<option value="${p}">${p}</option>`; });
+        }
+
+        function clearMainFilters() {
+            document.getElementById('mainStartDate').value = ''; document.getElementById('mainEndDate').value = '';
+            document.getElementById('mainZoneSelect').value = 'all'; document.getElementById('mainHazardSelect').value = 'all';
+            updateMainProvDropdown(); applyMainFilters();
+        }
+
+        function triggerDataReload() {
+            document.getElementById('reloadIconMain').classList.add('fa-spin');
+            document.getElementById('globalLoader').style.display = 'flex';
+            fetchMainData();
+        }
+
+        function fetchMainData() {
+            Papa.parse(sheetUrl, {
+                download: true, header: false,
+                complete: function(results) {
+                    try {
+                        if(results.data.length > 1) {
+                            rawMainData = results.data.slice(1);
+                            document.getElementById('lastUpdate').innerText = `อัปเดต: ${new Date().toLocaleTimeString('th-TH')}`;
+                        }
+                        if (rawMainData.length > 0) applyMainFilters();
+                    } catch (error) {
+                        console.error("Data Processing Error: ", error);
+                    } finally {
+                        document.getElementById('reloadIconMain').classList.remove('fa-spin');
+                        document.getElementById('globalLoader').style.display = 'none';
+                    }
+                },
+                error: function(err) {
+                    console.error("PapaParse Fetch Error:", err);
+                    document.getElementById('reloadIconMain').classList.remove('fa-spin');
+                    document.getElementById('globalLoader').style.display = 'none';
+                }
+            });
+        }
+
+        function applyMainFilters() {
+            const zoneFilter = document.getElementById('mainZoneSelect').value;
+            const provFilter = document.getElementById('mainProvinceSelect').value;
+            const hazardFilter = document.getElementById('mainHazardSelect').value;
+            const startVal = document.getElementById('mainStartDate').value;
+            const endVal = document.getElementById('mainEndDate').value;
+
+            const secSL = document.getElementById('section-sl');
+            const secOT = document.getElementById('section-ot');
+            
+            if (hazardFilter === 'all') { secSL.style.display = 'block'; secOT.style.display = 'block'; }
+            else if (hazardFilter === 'Social Listening') { secSL.style.display = 'block'; secOT.style.display = 'none'; }
+            else { secSL.style.display = 'none'; secOT.style.display = 'block'; }
+
+            let slData = rawMainData.filter(row => {
+                if (!(row[3] || row[4])) return false;
+                let zNum = parseInt((row[0]||'').toString().replace(/\D/g, ''));
+                if (zoneFilter !== 'all' && (isNaN(zNum) || zNum.toString() !== zoneFilter)) return false;
+                if (provFilter !== 'all' && normalizeProvNameMain(row[3]) !== normalizeProvNameMain(provFilter)) return false;
+                if (!checkDateRange(row[1], row[2], startVal, endVal)) return false;
+                return true;
+            });
+
+            let otData = rawMainData.filter(row => {
+                if (!row[35] && !row[36]) return false;
+                let zNum = parseInt((row[32]||'').toString().replace(/\D/g, ''));
+                if (zoneFilter !== 'all' && (isNaN(zNum) || zNum.toString() !== zoneFilter)) return false;
+                if (provFilter !== 'all' && normalizeProvNameMain(row[35]) !== normalizeProvNameMain(provFilter)) return false;
+                if (!checkDateRange(row[33], row[34], startVal, endVal)) return false;
+                if (hazardFilter !== 'all' && hazardFilter !== 'ภัยอื่นๆ' && hazardFilter !== 'Social Listening') {
+                    if (hazardFilter === 'ภัยชีวภาพ' && !isTrue(row[41])) return false;
+                    if (hazardFilter === 'ภัยเคมีและรังสี' && !isTrue(row[42])) return false;
+                    if (hazardFilter === 'ภัยธรรมชาติ' && !isTrue(row[43])) return false;
+                    if (hazardFilter === 'ภัยสิ่งแวดล้อม' && !isTrue(row[44])) return false;
+                    if (hazardFilter === 'อุบัติเหตุขนส่ง' && !isTrue(row[45])) return false;
+                    if (hazardFilter === 'ความมั่นคง' && !isTrue(row[46])) return false;
+                }
+                return true;
+            });
+
+            if(hazardFilter === 'all' || hazardFilter === 'Social Listening') processSocialListening(slData);
+            if(hazardFilter !== 'Social Listening') processOtherHazards(otData);
+        }
+
+        function renderHorizBar(id, labels, data, colors) {
+            const ctx = document.getElementById(id); if (!ctx) return;
+            if(mainChartInstances[id]) mainChartInstances[id].destroy();
+            let sum = data.reduce((a, b) => a + Number(b), 0);
+            if(sum === 0) { ctx.parentElement.innerHTML = `<div class="flex h-full w-full items-center justify-center text-slate-400 text-sm font-bold bg-slate-50 rounded-xl">ไม่มีข้อมูล</div><canvas id="${id}" class="hidden"></canvas>`; return; }
+            mainChartInstances[id] = new Chart(ctx, { 
+                type: 'bar', data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderRadius: 6 }] }, 
+                options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: { align: 'right', anchor: 'end', color: '#64748b', font: {size: 11, weight: 'bold'}, formatter: (val) => val > 0 ? val + ' (' + ((val / sum) * 100).toFixed(1) + '%)' : '' } }, scales: { x: { display: false }, y: { grid: { display: false }, ticks: {font:{family: 'Sarabun', size: 12, weight:'bold'}, color: '#475569'} } } } 
+            });
+        }
+
+        function renderBar(id, labels, data, colors) {
+            const ctx = document.getElementById(id); if (!ctx) return;
+            if(mainChartInstances[id]) mainChartInstances[id].destroy();
+            let sum = data.reduce((a, b) => a + Number(b), 0);
+            if(sum === 0) { ctx.parentElement.innerHTML = `<div class="flex h-full w-full items-center justify-center text-slate-400 text-sm font-bold bg-slate-50 rounded-xl">ไม่มีข้อมูล</div><canvas id="${id}" class="hidden"></canvas>`; return; }
+            mainChartInstances[id] = new Chart(ctx, { 
+                type: 'bar', data: { labels: labels.map(l => l.length > 15 ? l.substring(0,15)+'...' : l), datasets: [{ data: data, backgroundColor: colors, borderRadius: 6 }] }, 
+                options: { maintainAspectRatio: false, layout: {padding: {top: 30}}, plugins: { legend: { display: false }, datalabels: { align: 'top', anchor: 'end', color: '#64748b', font: {size: 11, weight: 'bold'}, textAlign: 'center', formatter: (val) => val > 0 ? val + '\n(' + ((val / sum) * 100).toFixed(0) + '%)' : '' } }, scales: { y: { display: false }, x: { grid: { display: false }, ticks: {font:{family: 'Sarabun', size: 11, weight:'bold'}, color:'#475569', maxRotation: 45, minRotation: 45} } } } 
+            });
+        }
+
+        function renderPie(id, labels, data, colors) {
+            const ctx = document.getElementById(id); if (!ctx) return;
+            if(mainChartInstances[id]) mainChartInstances[id].destroy();
+            let sum = data.reduce((a, b) => a + Number(b), 0);
+            if(sum === 0) { ctx.parentElement.innerHTML = `<div class="flex h-full w-full items-center justify-center text-slate-400 text-sm font-bold bg-slate-50 rounded-xl">ไม่มีข้อมูล</div><canvas id="${id}" class="hidden"></canvas>`; return; }
+            mainChartInstances[id] = new Chart(ctx, { 
+                type: 'pie', data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderColor: '#ffffff', borderWidth: 3 }] }, 
+                options: { maintainAspectRatio: false, layout: {padding: 10}, plugins: { legend: { position: 'bottom', labels: {font:{family: 'Sarabun', size: 11, weight:'bold'}, color:'#475569', usePointStyle: true, padding: 15} }, datalabels: { color: '#ffffff', font: {size: 12, weight: 'bold'}, textShadowBlur: 4, textShadowColor: '#000000', textAlign: 'center', formatter: (val) => val > 0 && (val/sum)>0.05 ? val + '\n(' + ((val / sum) * 100).toFixed(1) + '%)' : '' } } } 
+            });
+        }
+        
+        function renderAreaChart(id, labels, data) {
+            const ctx = document.getElementById(id); if (!ctx) return;
+            if(mainChartInstances[id]) mainChartInstances[id].destroy();
+            let sum = data.reduce((a, b) => a + Number(b), 0);
+            if(sum === 0) { ctx.parentElement.innerHTML = `<div class="flex h-full w-full items-center justify-center text-slate-400 text-sm font-bold bg-slate-50 rounded-xl">ไม่มีข้อมูลในไทม์ไลน์</div><canvas id="${id}" class="hidden"></canvas>`; return; }
+            
+            mainChartInstances[id] = new Chart(ctx, {
+                type: 'line',
+                data: { labels: labels, datasets: [{ label: 'จำนวนข่าว', data: data, borderColor: '#3B82F6', backgroundColor: 'rgba(59, 130, 246, 0.15)', borderWidth: 3, pointBackgroundColor: '#ffffff', pointBorderColor: '#3B82F6', pointBorderWidth: 2, pointRadius: 5, pointHoverRadius: 7, fill: true, tension: 0.4 }] },
+                options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 30, right: 20 } }, plugins: { legend: { display: false }, tooltip: { titleFont: { family: 'Sarabun', size: 13 }, bodyFont: { family: 'Sarabun', size: 13, weight: 'bold' }, padding: 10, displayColors: false }, datalabels: { align: 'top', anchor: 'end', color: '#2563EB', font: { family: 'Sarabun', size: 11, weight: 'bold' }, textAlign: 'center', formatter: (val) => val > 0 ? `${val}\n(${(val/sum*100).toFixed(1)}%)` : '' } }, scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { family: 'Sarabun', size: 11 }, color: '#94a3b8' } }, x: { grid: { display: false }, ticks: { font: { family: 'Sarabun', size: 11, weight: 'bold' }, color: '#64748b' } } } }
+            });
+        }
+
+        let thGeoJsonCache = null;
+        async function fetchThGeoJson() {
+            if(!thGeoJsonCache) {
+                try {
+                    const res = await fetch('https://raw.githubusercontent.com/apisit/thailand.json/master/thailand.json');
+                    thGeoJsonCache = await res.json();
+                } catch(e) { console.error("Map Load Error", e); }
+            }
+            return thGeoJsonCache;
+        }
+
+        // เพิ่มตัวแปลงชื่อจังหวัดอังกฤษ -> ไทย
+        const provEnToTh = {
+            "Bangkok Metropolis": "กรุงเทพมหานคร", "Bangkok": "กรุงเทพมหานคร",
+            "Amnat Charoen": "อำนาจเจริญ", "Ang Thong": "อ่างทอง", "Bueng Kan": "บึงกาฬ", "Buri Ram": "บุรีรัมย์",
+            "Chachoengsao": "ฉะเชิงเทรา", "Chai Nat": "ชัยนาท", "Chaiyaphum": "ชัยภูมิ", "Chanthaburi": "จันทบุรี",
+            "Chiang Mai": "เชียงใหม่", "Chiang Rai": "เชียงราย", "Chon Buri": "ชลบุรี", "Chumphon": "ชุมพร",
+            "Kalasin": "กาฬสินธุ์", "Kamphaeng Phet": "กำแพงเพชร", "Kanchanaburi": "กาญจนบุรี", "Khon Kaen": "ขอนแก่น",
+            "Krabi": "กระบี่", "Lampang": "ลำปาง", "Lamphun": "ลำพูน", "Loei": "เลย", "Lop Buri": "ลพบุรี",
+            "Mae Hong Son": "แม่ฮ่องสอน", "Maha Sarakham": "มหาสารคาม", "Mukdahan": "มุกดาหาร",
+            "Nakhon Nayok": "นครนายก", "Nakhon Pathom": "นครปฐม", "Nakhon Phanom": "นครพนม",
+            "Nakhon Ratchasima": "นครราชสีมา", "Nakhon Sawan": "นครสวรรค์", "Nakhon Si Thammarat": "นครศรีธรรมราช",
+            "Nan": "น่าน", "Narathiwat": "นราธิวาส", "Nong Bua Lam Phu": "หนองบัวลำภู", "Nong Khai": "หนองคาย",
+            "Nonthaburi": "นนทบุรี", "Pathum Thani": "ปทุมธานี", "Pattani": "ปัตตานี", "Phangnga": "พังงา",
+            "Phatthalung": "พัทลุง", "Phayao": "พะเยา", "Phetchabun": "เพชรบูรณ์", "Phetchaburi": "เพชรบุรี",
+            "Phichit": "พิจิตร", "Phitsanulok": "พิษณุโลก", "Phra Nakhon Si Ayutthaya": "พระนครศรีอยุธยา",
+            "Phrae": "แพร่", "Phuket": "ภูเก็ต", "Prachin Buri": "ปราจีนบุรี", "Prachuap Khiri Khan": "ประจวบคีรีขันธ์",
+            "Ranong": "ระนอง", "Ratchaburi": "ราชบุรี", "Rayong": "ระยอง", "Roi Et": "ร้อยเอ็ด",
+            "Sa Kaeo": "สระแก้ว", "Sakon Nakhon": "สกลนคร", "Samut Prakan": "สมุทรปราการ",
+            "Samut Sakhon": "สมุทรสาคร", "Samut Songkhram": "สมุทรสงคราม", "Saraburi": "สระบุรี",
+            "Satun": "สตูล", "Sing Buri": "สิงห์บุรี", "Si Sa Ket": "ศรีสะเกษ", "Songkhla": "สงขลา",
+            "Sukhothai": "สุโขทัย", "Suphan Buri": "สุพรรณบุรี", "Surat Thani": "สุราษฎร์ธานี",
+            "Surin": "สุรินทร์", "Tak": "ตาก", "Trang": "ตรัง", "Trat": "ตราด", "Ubon Ratchathani": "อุบลราชธานี",
+            "Udon Thani": "อุดรธานี", "Uthai Thani": "อุทัยธานี", "Uttaradit": "อุตรดิตถ์", "Yala": "ยะลา", "Yasothon": "ยโสธร"
+        };
+
+        // ฟังก์ชันช่วยหาชื่อภาษาไทยที่ถูกต้อง
+        function getProvThaiName(d) {
+            let nameEn = d.properties.NAME_1 || d.properties.name || d.properties.Name || "";
+            let nameTh = d.properties.name_th || d.properties.pro_th || d.properties.prov_nam_t || d.properties.thai_name || "";
+            if (/[\u0E00-\u0E7F]/.test(nameTh)) return nameTh.replace(/จ\.|จังหวัด/g, '').trim();
+            if (/[\u0E00-\u0E7F]/.test(nameEn)) return nameEn.replace(/จ\.|จังหวัด/g, '').trim();
+            return provEnToTh[nameEn] || nameEn;
+        }
+
+        async function renderMapD3(containerId, dataMap, colorScheme) {
+            const container = document.getElementById(containerId);
+            if(!container) return;
+            container.innerHTML = '';
+            
+            // สร้าง Flex Container จัดเลย์เอาต์ แผนที่(ซ้าย) Legend(ขวา)
+            container.className = "flex w-full h-full relative p-4 gap-6 items-center justify-between";
+
+            const geoData = await fetchThGeoJson();
+            if(!geoData) { container.innerHTML = '<span class="text-slate-400 font-bold m-auto">ไม่สามารถโหลดแผนที่ได้</span>'; return; }
+
+            const mapContainer = document.createElement('div');
+            mapContainer.className = "flex-1 h-[400px] relative flex justify-center items-center";
+            container.appendChild(mapContainer);
+
+            const legendContainer = document.createElement('div');
+            legendContainer.className = "w-[240px] shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-5 self-start mt-4";
+            container.appendChild(legendContainer);
+
+            const width = mapContainer.clientWidth || 400; 
+            const height = mapContainer.clientHeight || 400;
+            const svg = d3.select(mapContainer).append("svg").attr("width", "100%").attr("height", "100%").attr("viewBox", `0 0 ${width} ${height}`);
+            
+            const projection = d3.geoMercator().fitSize([width, height], geoData);
+            const path = d3.geoPath().projection(projection);
+            
+            // หาค่าสูงสุด เพื่อมาคำนวณขั้นบันได (Dynamic Scale)
+            let values = Object.values(dataMap).filter(v => v > 0);
+            let maxVal = values.length > 0 ? Math.max(...values) : 0;
+            if (maxVal === 0) maxVal = 1;
+            
+            // คำนวณขนาดของแต่ละช่วง (แบ่ง 5 ระดับ)
+            let step = Math.ceil(maxVal / 5);
+            if (step < 1) step = 1;
+
+            const colorPalettes = {
+                'blue': ['#E0F2FE', '#BAE6FD', '#7DD3FC', '#38BDF8', '#0284C7'],
+                'orange': ['#FEF08A', '#FACC15', '#F59E0B', '#EA580C', '#BE123C'] // สีโทนเหลือง -> แดง ตามรูป
+            };
+            const currentPalette = colorPalettes[colorScheme === 'blue' ? 'blue' : 'orange'];
+
+            // ฟังก์ชันคำนวณสีตามจำนวน
+            function getColorForValue(val) {
+                if (!val || val === 0) return '#f8fafc'; // สีเทาอ่อนสำหรับจังหวัดที่ไม่มีเหตุการณ์
+                if (val <= step) return currentPalette[0];
+                if (val <= step * 2) return currentPalette[1];
+                if (val <= step * 3) return currentPalette[2];
+                if (val <= step * 4) return currentPalette[3];
+                return currentPalette[4];
+            }
+
+            let tooltip = d3.select("body").select(".map-tooltip");
+            if(tooltip.empty()) { tooltip = d3.select("body").append("div").attr("class", "map-tooltip"); }
+
+            // วาดแผนที่
+            svg.append("g").selectAll("path").data(geoData.features).enter().append("path")
+                .attr("d", path)
+                .attr("fill", d => {
+                    let pName = normalizeProvNameMain(getProvThaiName(d)); 
+                    let count = dataMap[pName] || 0;
+                    return getColorForValue(count);
+                })
+                .attr("stroke", "#cbd5e1").attr("stroke-width", 0.5)
+                .on("mouseover", function(event, d) {
+                    d3.select(this).attr("stroke", "#475569").attr("stroke-width", 2).raise();
+                    let pName = normalizeProvNameMain(getProvThaiName(d)); 
+                    let count = dataMap[pName] || 0;
+                    let txtColor = colorScheme === 'blue' ? 'text-blue-600' : 'text-rose-600';
+                    tooltip.html(`<strong class="text-slate-800 text-sm">${pName}</strong><br/><span class="text-xs text-slate-500">จำนวน:</span> <strong class="${txtColor} text-lg">${count}</strong><span class="text-xs"> เหตุการณ์</span>`).style("visibility", "visible");
+                })
+                .on("mousemove", function(event) { tooltip.style("top", (event.pageY - 15) + "px").style("left", (event.pageX + 15) + "px"); })
+                .on("mouseout", function() { d3.select(this).attr("stroke", "#cbd5e1").attr("stroke-width", 0.5); tooltip.style("visibility", "hidden"); });
+
+            // --- ส่วนสร้างเนื้อหา Legend (ฝั่งขวา) ---
+            let legendTitleColor = 'text-slate-600';
+            let legendIcon = 'fa-list-ul';
+
+            let legendHTML = `
+                <div class="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
+                    <i class="fa-solid ${legendIcon} ${legendTitleColor} text-sm"></i>
+                    <h4 class="font-bold text-slate-700 text-sm">เกณฑ์จำแนกสี</h4>
+                </div>
+                <div class="flex flex-col gap-3 flex-col-reverse">
+            `;
+            
+            if (values.length === 0) {
+                // กรณีไม่มีข้อมูลเลย
+                legendHTML += `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="w-4 h-4 rounded-full bg-slate-100 border border-slate-200"></span>
+                            <span class="text-slate-700 font-bold text-xs">0</span>
+                        </div>
+                        <span class="text-slate-400 text-xs font-medium">เหตุการณ์</span>
+                    </div>`;
+            } else if (maxVal <= 5) {
+                // กรณีข้อมูลมีค่าน้อยมาก (เช่น สูงสุดแค่ 3) ให้แบ่งทีละ 1 ขั้น
+                for(let i=1; i<=maxVal; i++) {
+                    legendHTML += `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="w-4 h-4 rounded-full shadow-sm border border-slate-200/50" style="background:${currentPalette[i-1]}"></span>
+                            <span class="text-slate-700 font-bold text-xs">${i}</span>
+                        </div>
+                        <span class="text-slate-400 text-xs font-medium">เหตุการณ์</span>
+                    </div>`;
+                }
+            } else {
+                // แบ่ง 5 ระดับสมบูรณ์แบบไดนามิก
+                for(let i=0; i<5; i++) {
+                    let start = (i * step) + 1;
+                    let end = (i + 1) * step;
+                    
+                    let label = "";
+                    // สำหรับกล่องระดับ 5 (สีเข้มสุด)
+                    if (i === 4) {
+                        label = `≥ ${start}`;
+                    } else {
+                        label = `${start} - ${end}`;
+                    }
+                    
+                    let bgColor = currentPalette[i];
+                    
+                    legendHTML += `
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="w-4 h-4 rounded-full shadow-sm border border-slate-200/50" style="background:${bgColor}"></span>
+                            <span class="text-slate-700 font-bold text-xs">${label}</span>
+                        </div>
+                        <span class="text-slate-400 text-xs font-medium">เหตุการณ์</span>
+                    </div>`;
+                }
+            }
+            
+            legendHTML += '</div>';
+            legendContainer.innerHTML = legendHTML;
+        }
+
+        function processSocialListening(slData) {
+            let kpi = { t:0, bk:0, r:0, y:0 };
+            let provCountMap = {}; 
+            let sAttempt = {}; let sMethod = {}; let sCause = {}; let sLoc = {};
+            let riskFactors = { medMissed: 0, relapse: 0, other: 0, totalHasRisk: 0 };
+            let warningSigns = { sleep: 0, walk: 0, talk: 0, angry: 0, paranoia: 0, totalHasSign: 0 };
+            
+            let monthCounts = {};
+            const thaiMonths = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+            let startYear = 2568; let startMonth = 10; // ปีงบประมาณ 2569 เริ่ม ต.ค. 2568
+
+            slData.forEach(row => {
+                kpi.t++;
+                let s = row[7] ? row[7].toString().trim() : ''; 
+                if(s.includes('ดำ')) kpi.bk++; else if(s.includes('แดง')) kpi.r++; else if(s.includes('เหลือง')) kpi.y++;
+                
+                let prov = normalizeProvNameMain(row[3]); if(prov) provCountMap[prov] = (provCountMap[prov] || 0) + 1;
+
+                processMultiVal(row[16], sAttempt); 
+                let qVal = row[16] ? row[16].toString().trim() : '';
+                if (qVal && qVal !== '-' && qVal !== 'ไม่มีข้อมูล' && qVal !== 'ไม่มี') { 
+                    processMultiVal(row[17], sMethod); processMultiVal(row[18], sCause); processMultiVal(row[19], sLoc); 
+                }
+
+                if(isTrue(row[74]) || isTrue(row[76])) riskFactors.medMissed++;
+                if(isTrue(row[75])) riskFactors.relapse++; if(isTrue(row[77])) riskFactors.other++;
+                if(isTrue(row[74]) || isTrue(row[75]) || isTrue(row[76]) || isTrue(row[77])) riskFactors.totalHasRisk++;
+                if(isTrue(row[78])) warningSigns.sleep++; if(isTrue(row[79])) warningSigns.walk++; if(isTrue(row[80])) warningSigns.talk++;
+                if(isTrue(row[81])) warningSigns.angry++; if(isTrue(row[83])) warningSigns.paranoia++;
+                if(isTrue(row[78]) || isTrue(row[79]) || isTrue(row[80]) || isTrue(row[81]) || isTrue(row[83])) warningSigns.totalHasSign++;
+                
+                let m = getMonthNum(row[1]); let y = getYearNum(row[2], row[1]);
+                if (m > 0 && y > 0) {
+                    if (y > startYear || (y === startYear && m >= startMonth)) {
+                        let monthKeyStr = `${y}-${m.toString().padStart(2, '0')}`;
+                        monthCounts[monthKeyStr] = (monthCounts[monthKeyStr] || 0) + 1;
+                    }
+                }
+            });
+
+            document.getElementById('slKpiTotal').innerText = kpi.t.toLocaleString();
+            document.getElementById('slKpiBlack').innerText = kpi.bk.toLocaleString();
+            document.getElementById('slKpiRed').innerText = kpi.r.toLocaleString();
+            document.getElementById('slKpiYellow').innerText = kpi.y.toLocaleString();
+
+            renderRiskWarningInfographic('slRiskWarningContainer', kpi.t, riskFactors, warningSigns);
+
+            let sortedKeys = Object.keys(monthCounts).sort();
+            let trendLabels = sortedKeys.map(k => {
+                let parts = k.split('-'); let yy = parts[0].slice(-2); let mm = parseInt(parts[1]);
+                return `${thaiMonths[mm-1]} ${yy}`;
+            });
+            let trendData = sortedKeys.map(k => monthCounts[k]);
+            renderAreaChart('slMonthlyTrendChart', trendLabels, trendData);
+
+            let sortedProv = Object.entries(provCountMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
+            renderHorizBar('slTopProvChart', sortedProv.map(x=>x[0]), sortedProv.map(x=>x[1]), color10Orange);
+            
+            renderMapD3('slThailandMap', provCountMap, 'orange');
+
+            let sortedSAtt = Object.entries(sAttempt).sort((a,b)=>b[1]-a[1]); 
+            renderPie('slSuicideAttemptPieChart', sortedSAtt.map(x=>x[0]), sortedSAtt.map(x=>x[1]), successFailColors);
+
+            let sortedSLoc = Object.entries(sLoc).sort((a,b)=>b[1]-a[1]); 
+            renderPie('slSuicideLocationPieChart', sortedSLoc.map(x=>x[0]), sortedSLoc.map(x=>x[1]), pastelCandy15);
+
+            let sortedSCau = Object.entries(sCause).sort((a,b)=>b[1]-a[1]); 
+            renderHorizBar('slSuicideCauseBarChart', sortedSCau.map(x=>x[0]), sortedSCau.map(x=>x[1]), color10Purple);
+
+            let sortedSMet = Object.entries(sMethod).sort((a,b)=>b[1]-a[1]); 
+            renderBar('slSuicideMethodBarChart', sortedSMet.map(x=>x[0]), sortedSMet.map(x=>x[1]), color10Yellow);
+
+            let tb = document.getElementById('slTableBody');
+            tb.innerHTML = slData.length === 0 ? `<tr><td colspan="7" class="p-4 text-center text-slate-500 font-bold">ไม่มีข้อมูล</td></tr>` : slData.map((row, i) => {
+                let s = row[7] ? row[7].toString().trim() : ''; 
+                let stHtml = s.includes('ดำ') ? `<span class="bg-slate-800 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">Black</span>` : 
+                             s.includes('แดง') ? `<span class="bg-rose-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">Red</span>` : 
+                             s.includes('เหลือง') ? `<span class="bg-amber-400 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">Yellow</span>` : '-';
+                return `<tr class="hover:bg-slate-50 transition-colors">
+                    <td class="p-3">${slData.length - i}</td><td class="p-3">${row[1]||''} ${row[2]||''}</td>
+                    <td class="p-3 font-medium text-slate-500">${row[0]||'-'}</td><td class="p-3 font-bold text-slate-700">${normalizeProvNameMain(row[3])}</td>
+                    <td class="p-3 truncate max-w-[200px]" title="${row[4]||''}">${row[4]||'-'}</td>
+                    <td class="p-3 text-blue-500 font-bold truncate max-w-[100px] hover:underline"><a href="${row[5]||'#'}" target="_blank">ลิงก์ข่าว <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i></a></td>
+                    <td class="p-3">${stHtml}</td>
+                </tr>`;
+            }).join('');
+        }
+        
+        function renderRiskWarningInfographic(containerId, totalEvents, rf, ws) {
+            const container = document.getElementById(containerId); if (!container) return;
+            if (totalEvents === 0) { container.innerHTML = ''; return; }
+            const calcPct = (val) => ((val / totalEvents) * 100).toFixed(1);
+            container.innerHTML = `
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-blue-50/50 rounded-3xl p-6 border border-blue-100 flex flex-col items-center">
+                    <h3 class="text-xl font-bold text-slate-800 mb-2"><span class="text-rose-500 text-3xl">3</span> ปัจจัยเสี่ยงหลัก <i class="fa-solid fa-triangle-exclamation text-amber-500"></i></h3>
+                    <p class="text-sm font-bold text-slate-600 bg-white px-4 py-1.5 rounded-full shadow-sm mb-4 border border-slate-100">ของผู้ป่วยที่ก่อความรุนแรง</p>
+                    <div class="text-xs font-bold mb-6 flex"><span class="bg-white text-slate-600 px-3 py-1.5 rounded-l-full border border-slate-200">จาก ${totalEvents} เหตุการณ์</span><span class="bg-blue-200 text-blue-800 px-3 py-1.5 rounded-r-full border border-blue-200 border-l-0">${calcPct(rf.totalHasRisk)}%</span></div>
+                    
+                    <div class="w-full space-y-3">
+                        <div class="bg-white rounded-2xl p-3 flex justify-between items-center shadow-sm border border-orange-100 w-full hover:scale-[1.01] transition-transform"><span class="font-bold text-sm flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex justify-center items-center"><i class="fa-solid fa-pills"></i></div> 1. ขาดยา/ไม่มาตามนัด</span><div class="text-xs font-bold text-slate-500 flex items-center gap-2">(${rf.medMissed}) <span class="bg-orange-500 text-white px-3 py-1 rounded-full">${calcPct(rf.medMissed)}%</span></div></div>
+                        <div class="bg-white rounded-2xl p-3 flex justify-between items-center shadow-sm border border-rose-100 w-full hover:scale-[1.01] transition-transform"><span class="font-bold text-sm flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-rose-50 text-rose-500 flex justify-center items-center"><i class="fa-solid fa-wine-bottle"></i></div> 2. เสพซ้ำ (สารเสพติด/เหล้า)</span><div class="text-xs font-bold text-slate-500 flex items-center gap-2">(${rf.relapse}) <span class="bg-rose-500 text-white px-3 py-1 rounded-full">${calcPct(rf.relapse)}%</span></div></div>
+                        <div class="bg-white rounded-2xl p-3 flex justify-between items-center shadow-sm border border-amber-100 w-full hover:scale-[1.01] transition-transform"><span class="font-bold text-sm flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-amber-50 text-amber-500 flex justify-center items-center"><i class="fa-solid fa-users-rays"></i></div> 3. อื่นๆ (ปัจจัยกระตุ้นร่วม)</span><div class="text-xs font-bold text-slate-500 flex items-center gap-2">(${rf.other}) <span class="bg-amber-500 text-white px-3 py-1 rounded-full">${calcPct(rf.other)}%</span></div></div>
+                    </div>
+                </div>
+
+                <div class="bg-[#FFFDF0] rounded-3xl p-6 border border-[#FDF6B2] flex flex-col items-center">
+                    <p class="text-sm font-bold text-slate-600 bg-white px-4 py-1.5 rounded-full shadow-sm mb-3 border border-slate-100">เฝ้าระวังกลุ่มเสี่ยงในชุมชน</p>
+                    <h3 class="text-3xl font-bold text-rose-500 mb-4">ด้วย 5 สัญญาณเตือน</h3>
+                    <div class="text-xs font-bold mb-6 flex"><span class="bg-white text-slate-600 px-3 py-1.5 rounded-l-full border border-slate-200">จาก ${totalEvents} เหตุการณ์</span><span class="bg-amber-200 text-amber-800 px-3 py-1.5 rounded-r-full border border-amber-200 border-l-0">${calcPct(ws.totalHasSign)}%</span></div>
+                    
+                    <div class="w-full space-y-3">
+                        <div class="bg-white rounded-2xl p-3 flex justify-between items-center shadow-sm border border-rose-100 w-full hover:scale-[1.01] transition-transform"><span class="font-bold text-sm flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-rose-50 text-rose-500 flex justify-center items-center"><i class="fa-solid fa-face-angry"></i></div> หงุดหงิดฉุนเฉียว</span><div class="text-xs font-bold text-slate-500 flex items-center gap-2">(${ws.angry}) <span class="bg-rose-500 text-white px-3 py-1 rounded-full">${calcPct(ws.angry)}%</span></div></div>
+                        
+                        <div class="grid grid-cols-2 gap-3 w-full">
+                            <div class="bg-white rounded-2xl p-3 flex flex-col items-center text-center shadow-sm border border-pink-100 hover:scale-[1.02] transition-transform"><div class="w-10 h-10 rounded-full bg-pink-50 text-pink-500 flex justify-center items-center mb-2"><i class="fa-solid fa-shield-halved"></i></div><div class="font-bold text-sm mb-2 text-slate-700">เที่ยวหวาดระแวง</div><div class="text-xs font-bold text-slate-500">(${ws.paranoia}) <span class="bg-pink-500 text-white px-2 py-0.5 rounded-full">${calcPct(ws.paranoia)}%</span></div></div>
+                            <div class="bg-white rounded-2xl p-3 flex flex-col items-center text-center shadow-sm border border-blue-100 hover:scale-[1.02] transition-transform"><div class="w-10 h-10 rounded-full bg-blue-50 text-blue-500 flex justify-center items-center mb-2"><i class="fa-solid fa-comment-dots"></i></div><div class="font-bold text-sm mb-2 text-slate-700">พูดจาคนเดียว</div><div class="text-xs font-bold text-slate-500">(${ws.talk}) <span class="bg-blue-500 text-white px-2 py-0.5 rounded-full">${calcPct(ws.talk)}%</span></div></div>
+                            <div class="bg-white rounded-2xl p-3 flex flex-col items-center text-center shadow-sm border border-yellow-100 hover:scale-[1.02] transition-transform"><div class="w-10 h-10 rounded-full bg-yellow-50 text-yellow-600 flex justify-center items-center mb-2"><i class="fa-solid fa-bed"></i></div><div class="font-bold text-sm mb-2 text-slate-700">ไม่หลับไม่นอน</div><div class="text-xs font-bold text-slate-500">(${ws.sleep}) <span class="bg-yellow-500 text-white px-2 py-0.5 rounded-full">${calcPct(ws.sleep)}%</span></div></div>
+                            <div class="bg-white rounded-2xl p-3 flex flex-col items-center text-center shadow-sm border border-emerald-100 hover:scale-[1.02] transition-transform"><div class="w-10 h-10 rounded-full bg-emerald-50 text-emerald-500 flex justify-center items-center mb-2"><i class="fa-solid fa-shoe-prints"></i></div><div class="font-bold text-sm mb-2 text-slate-700">เดินไปเดินมา</div><div class="text-xs font-bold text-slate-500">(${ws.walk}) <span class="bg-emerald-500 text-white px-2 py-0.5 rounded-full">${calcPct(ws.walk)}%</span></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function processOtherHazards(otData) {
+            let kpi = { t:0, bk:0, r:0, y:0 };
+            let provCountMap = {}; let hazardCounts = {}; 
+
+            otData.forEach(row => {
+                kpi.t++;
+                let s = row[39] ? row[39].toString().trim() : ''; 
+                if(s.includes('ดำ')) kpi.bk++; else if(s.includes('แดง')) kpi.r++; else if(s.includes('เหลือง')) kpi.y++;
+
+                let prov = normalizeProvNameMain(row[35]); if(prov) provCountMap[prov] = (provCountMap[prov] || 0) + 1;
+                
+                let specificType = [];
+                if (isTrue(row[41])) specificType.push('ภัยชีวภาพ');
+                if (isTrue(row[42])) specificType.push('ภัยเคมีและรังสี');
+                if (isTrue(row[43])) specificType.push('ภัยธรรมชาติ');
+                if (isTrue(row[44])) specificType.push('ภัยสิ่งแวดล้อม');
+                if (isTrue(row[45])) specificType.push('อุบัติเหตุขนส่ง');
+                if (isTrue(row[46])) specificType.push('ความมั่นคง');
+                if (specificType.length === 0) specificType.push('ภัยอื่นๆ (ไม่ระบุ)');
+                
+                specificType.forEach(t => hazardCounts[t] = (hazardCounts[t] || 0) + 1);
+            });
+
+            document.getElementById('otKpiTotal').innerText = kpi.t.toLocaleString();
+            document.getElementById('otKpiBlack').innerText = kpi.bk.toLocaleString();
+            document.getElementById('otKpiRed').innerText = kpi.r.toLocaleString();
+            document.getElementById('otKpiYellow').innerText = kpi.y.toLocaleString();
+
+            let sortedProv = Object.entries(provCountMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
+            renderHorizBar('otTopProvChart', sortedProv.map(x=>x[0]), sortedProv.map(x=>x[1]), color10Blue);
+            
+            renderMapD3('otThailandMap', provCountMap, 'blue');
+
+            let sHz = Object.entries(hazardCounts).sort((a,b)=>b[1]-a[1]); 
+            renderPie('otHazardTypePieChart', sHz.map(x=>x[0]), sHz.map(x=>x[1]), hazardColors);
+
+            let tb = document.getElementById('otTableBody');
+            tb.innerHTML = otData.length === 0 ? `<tr><td colspan="8" class="p-4 text-center font-bold text-slate-500">ไม่มีข้อมูล</td></tr>` : otData.map((row, i) => {
+                let s = row[39] ? row[39].toString().trim() : ''; 
+                let stHtml = s.includes('ดำ') ? `<span class="bg-slate-800 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">Black</span>` : 
+                             s.includes('แดง') ? `<span class="bg-rose-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">Red</span>` : 
+                             s.includes('เหลือง') ? `<span class="bg-amber-400 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">Yellow</span>` : '-';
+                
+                // หาประเภทภัยและกำหนดสีพาสเทลแยกตามประเภท
+                let typeHtmls = [];
+                if (isTrue(row[41])) typeHtmls.push('<span class="bg-rose-100 text-rose-700 text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap">ภัยชีวภาพ</span>');
+                if (isTrue(row[42])) typeHtmls.push('<span class="bg-orange-100 text-orange-700 text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap">ภัยเคมีและรังสี</span>');
+                if (isTrue(row[43])) typeHtmls.push('<span class="bg-emerald-100 text-emerald-700 text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap">ภัยธรรมชาติ</span>');
+                if (isTrue(row[44])) typeHtmls.push('<span class="bg-cyan-100 text-cyan-700 text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap">ภัยสิ่งแวดล้อม</span>');
+                if (isTrue(row[45])) typeHtmls.push('<span class="bg-purple-100 text-purple-700 text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap">อุบัติเหตุขนส่ง</span>');
+                if (isTrue(row[46])) typeHtmls.push('<span class="bg-blue-100 text-blue-700 text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap">ความมั่นคง</span>');
+                
+                let displayTypeHtml = typeHtmls.length > 0 ? `<div class="flex flex-wrap gap-1">${typeHtmls.join('')}</div>` : '<span class="bg-slate-100 text-slate-600 text-[11px] font-bold px-2.5 py-1 rounded-full">ภัยอื่นๆ (ไม่ระบุ)</span>';
+
+                return `<tr class="hover:bg-slate-50 transition-colors">
+                    <td class="p-3">${otData.length - i}</td><td class="p-3">${row[33]||''} ${row[34]||''}</td>
+                    <td class="p-3 font-medium text-slate-500">${row[32]||'-'}</td><td class="p-3 font-bold text-slate-700">${normalizeProvNameMain(row[35])}</td>
+                    <td class="p-3">${displayTypeHtml}</td>
+                    <td class="p-3 truncate max-w-[200px]" title="${row[36]||''}">${row[36]||'-'}</td>
+                    <td class="p-3 text-blue-500 font-bold truncate max-w-[100px] hover:underline"><a href="${row[37]||'#'}" target="_blank">ลิงก์ข่าว <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i></a></td>
+                    <td class="p-3">${stHtml}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        window.onload = () => {
+            Chart.register(ChartDataLabels);
+            initMainDropdowns();
+            fetchMainData();
+        };
+    </script>
+</body>
+</html><script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="5c790c75-fc3f-4b51-990a-c381c786bc2d" data-app-host="app.netlify.com"></script>
