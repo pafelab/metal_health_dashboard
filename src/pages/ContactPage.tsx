@@ -12,7 +12,7 @@ export default function ContactPage() {
         ทีมงาน Social Listening
       </h2>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {TEAM.map((member) => (
           <div key={member.name} className="bg-white rounded-card shadow-card overflow-hidden flex flex-col">
             <img src={member.photo} alt={member.name} className="h-64 w-full object-cover bg-slate-100" />

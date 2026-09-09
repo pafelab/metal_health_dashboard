@@ -151,7 +151,7 @@ export default function McattPage() {
             ) : visiblePeople.length === 0 ? (
               <p className="text-sm text-slate-400">ไม่พบผลการค้นหาในเขตนี้</p>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {visiblePeople.map((p, i) => (
                   <PersonCard key={`${zone}-${p.name}-${i}`} person={p} />
                 ))}

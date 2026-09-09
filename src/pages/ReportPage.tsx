@@ -108,20 +108,30 @@ export default function ReportPage() {
         icon={AlertTriangle}
         accent="s1"
         right={
+          /* Card's `right` slot is shrink-0, so whatever sits here dictates how little room the
+             title gets. Below sm these collapse to icon-only (the same trick PageHeader uses for
+             โหลดข้อมูลใหม่, and what FormCard's own header already looks like) — with both labels
+             showing this pair is 288px wide, which at 390px starved the title down to 5 glyphs. */
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setLightboxOpen(true)}
+              title="ดูรูปเต็มจอ"
+              aria-label="ดูรูปเต็มจอ"
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-s1-600 hover:bg-s1-50 hover:border-s1-300 transition-colors"
             >
-              <Maximize2 size={16} /> ดูรูปเต็มจอ
+              <Maximize2 size={16} className="shrink-0" />
+              <span className="hidden sm:inline">ดูรูปเต็มจอ</span>
             </button>
             <a
               href={ALERT_IMAGE}
               download="alert_criteria.jpg"
+              title="ดาวน์โหลด"
+              aria-label="ดาวน์โหลด"
               className="inline-flex items-center gap-2 rounded-xl bg-s1-600 px-4 py-2 text-sm font-semibold text-white hover:bg-s1-700 transition-colors"
             >
-              <Download size={16} /> ดาวน์โหลด
+              <Download size={16} className="shrink-0" />
+              <span className="hidden sm:inline">ดาวน์โหลด</span>
             </a>
           </div>
         }
@@ -135,7 +145,7 @@ export default function ReportPage() {
       </Card>
 
       <Card title="แบบฟอร์มการรายงาน (DCIR)" icon={FileText} accent="s2">
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {FORMS.map((def) => (
             <FormCard key={def.href} def={def} />
           ))}

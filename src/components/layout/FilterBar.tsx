@@ -209,11 +209,18 @@ export default function FilterBar({
 
   return (
     <div
-      className="sticky z-20 bg-canvas/95 backdrop-blur border-b border-slate-100 shadow-sm"
+      // SPEC 5.2 says this bar is sticky, and it is — from md up, where it is at most two rows
+      // (measured 215px at 768, 139px at 1280, i.e. 26-37% of the viewport under the 72px header).
+      // Below md it stacks to one field per row and pinning it is not viable: measured 569px tall
+      // at 390x820, so header+bar owned 78% of the screen and the first card's title sat behind it;
+      // at 640x360 (landscape phone) the 445px pinned block is TALLER than the viewport, which puts
+      // คัดกรอง permanently off-screen. Static below md, so it scrolls away like normal content.
+      // `top` is simply inert while the element is static, so no second breakpoint is needed here.
+      className="md:sticky z-20 bg-canvas/95 backdrop-blur border-b border-slate-100 shadow-sm"
       style={{ top: HEADER_HEIGHT_PX }}
     >
       <div className="px-4 sm:px-6 py-3.5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-[repeat(5,minmax(0,1fr))_minmax(max-content,1fr)] gap-3 items-end">
           {/* จากเดือน */}
           <div>
             <label className={labelCls}>

@@ -32,9 +32,20 @@ function graphemes(s: string): string[] {
 }
 
 /** Inserts soft line breaks into long Thai category names instead of letting them clip. */
-export function wrapThaiLabel(name: string, maxCharsPerLine = 8): string {
+export function wrapThaiLabel(name: string, maxCharsPerLine = 12): string {
   const clusters = graphemes(name)
   if (clusters.length <= maxCharsPerLine) return name
+
+  // If there's a space (e.g. "มากกว่า 60" or "ผู้ป่วย SMI-V"), prefer breaking at the space
+  if (name.includes(' ')) {
+    const spaceIdx = name.lastIndexOf(' ')
+    const first = name.slice(0, spaceIdx).trim()
+    const second = name.slice(spaceIdx + 1).trim()
+    if (first && second && graphemes(second).length <= maxCharsPerLine) {
+      return `${first}\n${second}`
+    }
+  }
+
   const chunks: string[] = []
   for (let i = 0; i < clusters.length; i += maxCharsPerLine) {
     chunks.push(clusters.slice(i, i + maxCharsPerLine).join(''))
@@ -147,11 +158,15 @@ function buildAxisOption(
           : undefined,
       label: {
         show: true,
-        position: isHorizontal ? 'right' : kind === 'bar' ? 'top' : 'top',
+        position: isHorizontal ? 'right' : 'top',
         fontFamily: FONT,
         fontSize: LABEL_SIZE,
         color: '#334155',
-        formatter: labelFmt,
+        formatter: (p: any) => {
+          const val = typeof p?.value === 'number' ? p.value : (p?.data?.value ?? 0)
+          if (!val || val <= 0) return ''
+          return labelFmt(p)
+        },
       },
     },
   ]
@@ -366,20 +381,37 @@ export function buildMultiSeriesOption(
     name: s.name,
     type: 'bar',
     stack: stacked ? 'total' : undefined,
-    barMaxWidth: 40,
+    barMaxWidth: stacked ? 56 : 36,
     data: s.data,
-    itemStyle: { color: palette[i] },
+    itemStyle: {
+      color: palette[i],
+      borderRadius: stacked
+        ? undefined
+        : isHorizontal
+        ? [0, 4, 4, 0]
+        : [4, 4, 0, 0],
+    },
     label: {
       show: true,
       position: isHorizontal ? 'right' : stacked ? 'inside' : 'top',
       fontFamily: FONT,
-      fontSize: LABEL_SIZE,
-      color: stacked ? '#fff' : '#334155',
+      fontSize: stacked ? 12 : LABEL_SIZE,
+      color: stacked ? '#ffffff' : '#334155',
+      textShadowColor: stacked ? 'rgba(0, 0, 0, 0.45)' : undefined,
+      textShadowBlur: stacked ? 3 : undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      formatter: (p: any) => formatCountPercent(p.value as number, denom) + valueSuffix,
+      formatter: (p: any) => {
+        const val = typeof p?.value === 'number' ? p.value : (p?.data?.value ?? 0)
+        if (!val || val <= 0) return ''
+        const pct = denom > 0 ? ((val / denom) * 100).toFixed(1) : '0.0'
+        if (isHorizontal) {
+          return `${val.toLocaleString('en-US')} (${pct}%)${valueSuffix}`
+        }
+        return `${val.toLocaleString('en-US')}\n(${pct}%)${valueSuffix}`
+      },
     },
     // Thin stacked segments can't fit "123 (45.6%)" — drop the label rather than overlap it.
-    labelLayout: stacked ? { hideOverlap: true } : undefined,
+    labelLayout: { hideOverlap: true },
   }))
 
   return {

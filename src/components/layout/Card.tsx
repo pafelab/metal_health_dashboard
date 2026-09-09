@@ -35,7 +35,14 @@ export default function Card({
   return (
     <div className={`bg-white rounded-card shadow-card h-full flex flex-col ${className}`}>
       {hasHeader && (
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3 flex-none">
+        /* `right` (usually ChartTypeSwitcher — up to six icon buttons, ~150px) is shrink-0, so on
+            a narrow card it takes its width first and the title, which is min-w-0 + truncate, gets
+            whatever is left. Measured before this wrap existed: at 390px three dashboard titles
+            rendered at literally 0px wide and eight more under 60px; same at 768 and 1024. Wrapping
+            drops `right` onto its own line whenever the untruncated title would not fit beside it,
+            which is exactly when the squeeze happens. Above xl there is room for both (worst case
+            measured 86px of title), so the single-line header is kept there. */
+        <div className="flex flex-wrap xl:flex-nowrap items-start justify-between gap-3 px-6 pt-5 pb-3 flex-none">
           <div className="flex items-start gap-3 min-w-0">
             {Icon && (
               <span
@@ -52,7 +59,7 @@ export default function Card({
               {subtitle !== undefined && <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>}
             </div>
           </div>
-          {right !== undefined && <div className="shrink-0">{right}</div>}
+          {right !== undefined && <div className="shrink-0 ml-auto">{right}</div>}
         </div>
       )}
       <div className={`px-6 pb-6 flex-1 flex flex-col ${hasHeader ? '' : 'pt-6'} ${bodyClassName}`}>{children}</div>

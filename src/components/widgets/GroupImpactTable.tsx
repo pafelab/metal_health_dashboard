@@ -66,7 +66,13 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
             position: horizontal ? ('right' as const) : ('top' as const),
             fontFamily: FONT,
             fontSize: LABEL_SIZE,
-            formatter: (p: { value: number }) => fmtCountPct(p.value, totalDeaths),
+            color: '#334155',
+            formatter: (p: { value: number }) => {
+              if (!p.value || p.value <= 0) return ''
+              return horizontal
+                ? fmtCountPct(p.value, totalDeaths)
+                : `${p.value}\n(${((p.value / (totalDeaths || 1)) * 100).toFixed(1)}%)`
+            },
           },
         },
         {
@@ -79,7 +85,13 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
             position: horizontal ? ('right' as const) : ('top' as const),
             fontFamily: FONT,
             fontSize: LABEL_SIZE,
-            formatter: (p: { value: number }) => fmtCountPct(p.value, totalInjured),
+            color: '#334155',
+            formatter: (p: { value: number }) => {
+              if (!p.value || p.value <= 0) return ''
+              return horizontal
+                ? fmtCountPct(p.value, totalInjured)
+                : `${p.value}\n(${((p.value / (totalInjured || 1)) * 100).toFixed(1)}%)`
+            },
           },
         },
       ],
