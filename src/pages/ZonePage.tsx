@@ -61,6 +61,8 @@ export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
             zoneMode
             zone={applied.zone}
             onProvinceClick={setProvinceAndApply}
+            selectedProvince={applied.province !== 'all' ? applied.province : undefined}
+            onClearProvince={() => setProvinceAndApply('all')}
           />
         )}
         {showSection2 && (

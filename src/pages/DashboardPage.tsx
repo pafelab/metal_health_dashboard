@@ -47,7 +47,12 @@ export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
 
       <div className="px-4 sm:px-6 py-6 space-y-10">
         {showSection1 && (
-          <SocialListeningSection rows={filtered.sl} onProvinceClick={setProvinceAndApply} />
+          <SocialListeningSection
+            rows={filtered.sl}
+            onProvinceClick={setProvinceAndApply}
+            selectedProvince={applied.province !== 'all' ? applied.province : undefined}
+            onClearProvince={() => setProvinceAndApply('all')}
+          />
         )}
         {showSection2 && (
           <OtherHazardsSection rows={filtered.hz} onProvinceClick={setProvinceAndApply} />

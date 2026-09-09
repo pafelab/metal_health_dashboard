@@ -4,7 +4,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Force Poppins font across the application with Prompt for Thai */
+*,
+*::before,
+*::after,
 html,
 body,
 #root,

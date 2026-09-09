@@ -58,6 +58,9 @@ export interface SocialListeningSectionProps {
   zoneMode?: boolean
   zone?: number | 'all'
   onProvinceClick: (p: string) => void
+  selectedProvince?: string
+  onClearProvince?: () => void
+  showMapSideCards?: boolean
 }
 
 /** Local display order for the "การช่วยเหลือผู้ก่อเหตุ" pie (widget 21) — not part of the frozen
@@ -82,7 +85,15 @@ const GRID = 'grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4'
 const HALF = 'md:col-span-1 xl:col-span-2'
 const FULL = 'md:col-span-2 xl:col-span-4'
 
-export default function SocialListeningSection({ rows, zoneMode, zone, onProvinceClick }: SocialListeningSectionProps) {
+export default function SocialListeningSection({
+  rows,
+  zoneMode,
+  zone,
+  onProvinceClick,
+  selectedProvince,
+  onClearProvince,
+  showMapSideCards = true,
+}: SocialListeningSectionProps) {
   const effectiveZone: number | 'all' = zone ?? 'all'
   const isZoneScoped = !!zoneMode && effectiveZone !== 'all'
 
@@ -197,31 +208,36 @@ export default function SocialListeningSection({ rows, zoneMode, zone, onProvinc
           />
         </Span>
 
-        {/* Widget 5 — density map */}
+        {/* Widget 5 — density map (with companion Selected Area + Top 10 Provinces cards) */}
         <Span className={FULL}>
           <ThailandMap
             mode={zoneMode ? 'zone' : 'country'}
             zone={effectiveZone}
             data={mapData}
-            buckets={SECTION1_MAP_BUCKETS}
             title="แผนที่ความหนาแน่น"
             accent="s1"
             onProvinceClick={onProvinceClick}
+            selectedProvince={selectedProvince}
+            onClearProvince={onClearProvince}
+            topProvinces={topProvinces}
+            showSideCards={showMapSideCards}
           />
         </Span>
 
-        {/* Widget 6 — top 10 provinces */}
-        <Span className={HALF}>
-          <SwitchableChart
-            widgetId="s1-top-provinces"
-            title="10 อันดับจังหวัด"
-            icon={MapPin}
-            data={topProvinces}
-            defaultType="hbar"
-            allowedTypes={['hbar', 'bar', 'pie', 'donut', 'treemap', 'funnel']}
-            accent="s1"
-          />
-        </Span>
+        {/* Widget 6 — top 10 provinces (rendered when side cards are not shown) */}
+        {!showMapSideCards && (
+          <Span className={HALF}>
+            <SwitchableChart
+              widgetId="s1-top-provinces"
+              title="10 อันดับจังหวัด"
+              icon={MapPin}
+              data={topProvinces}
+              defaultType="hbar"
+              allowedTypes={['hbar', 'bar', 'pie', 'donut', 'treemap', 'funnel']}
+              accent="s1"
+            />
+          </Span>
+        )}
 
         {/* Widget 7 — patient groups (5) */}
         <Span className={HALF}>
