@@ -84,7 +84,7 @@ export default function TimelinessCard({ result }: TimelinessCardProps) {
         </DenominatorNote>
       )}
 
-      <div className="mt-6 overflow-x-auto">
+      <div className="relative mt-6 overflow-x-auto">
         <table className="w-full min-w-[420px] text-tableText">
           <caption className="mb-2 text-left text-sm font-medium text-slate-600">
             เกณฑ์แปลงร้อยละเป็นคะแนนระดับ ({SCALE_MIN}–{SCALE_MAX})

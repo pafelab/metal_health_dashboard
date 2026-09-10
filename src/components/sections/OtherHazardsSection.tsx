@@ -120,7 +120,7 @@ export default function OtherHazardsSection({
                 setOutOfPeriodOnly(true)
                 scrollToWidget('s2-events')
               }}
-              className="whitespace-nowrap rounded-full border border-amber-500 bg-white px-3 py-1.5 text-sm font-bold text-amber-900 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
+              className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded-full border border-amber-500 bg-white px-4 py-1.5 text-sm font-bold text-amber-900 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
             >
               ดูเฉพาะรายการที่ต้องตรวจสอบ
             </button>

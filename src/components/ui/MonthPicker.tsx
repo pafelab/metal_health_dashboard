@@ -4,7 +4,7 @@
 // open, arrow keys move between months, selection is exposed with aria-pressed, and the chosen
 // month/year is announced through a polite live region. Public props are unchanged.
 
-import { useState, useRef, useEffect, useMemo, useCallback, useId } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useId } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { THAI_MONTHS, MONTH_ABBR } from '@/config'
 
@@ -80,6 +80,51 @@ export default function MonthPicker({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const monthRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  // responsive-audit R04: the panel was a fixed w-72 sm:w-80 anchored at left-0 with no
+  // viewport-relative cap. At the 18px root that is 324/360px, so at 320px wide it was already
+  // wider than the screen before its left inset, and from the rightmost filter column it ran off
+  // the right edge. The width is now capped at the viewport and the panel flips to the right edge
+  // / above the trigger and caps its own height when there is not enough room where it prefers to
+  // be. Absolute + flip on purpose: FilterBar has `backdrop-blur`, which makes it the containing
+  // block for fixed descendants, so a position:fixed sheet here would NOT be viewport-relative.
+  const [placement, setPlacement] = useState<{ alignRight: boolean; above: boolean; maxHeight: number }>({
+    alignRight: false,
+    above: false,
+    maxHeight: 0,
+  })
+
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    const compute = () => {
+      const trigger = triggerRef.current
+      if (!trigger) return
+      const rect = trigger.getBoundingClientRect()
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const panelWidth = Math.min(360, vw - 32)
+      const spaceBelow = vh - rect.bottom - 16
+      const spaceAbove = rect.top - 16
+      const above = spaceBelow < 320 && spaceAbove > spaceBelow
+      setPlacement({
+        // Flip to the right edge only when doing so actually fits (a full-width trigger on a
+        // phone fits neither way; there the viewport-capped width alone keeps it on screen).
+        alignRight: rect.left + panelWidth > vw - 8 && rect.right - panelWidth >= 8,
+        above,
+        // No generous floor here: on a 390px-tall landscape phone the roomier side is only
+        // ~195px, and a floor above that would push the footer actions back off screen. The
+        // panel scrolls internally instead.
+        maxHeight: Math.max(120, Math.round(above ? spaceAbove : spaceBelow)),
+      })
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    window.addEventListener('scroll', compute, true)
+    return () => {
+      window.removeEventListener('resize', compute)
+      window.removeEventListener('scroll', compute, true)
+    }
+  }, [isOpen])
 
   const close = useCallback((returnFocus = true) => {
     setIsOpen(false)
@@ -250,7 +295,7 @@ export default function MonthPicker({
           type="button"
           aria-label="ล้างการเลือกเดือน"
           onClick={handleClearFromTrigger}
-          className={`absolute right-9 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors ${focusRing}`}
+          className={`absolute right-8 top-1/2 -translate-y-1/2 grid h-[44px] w-[44px] place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors ${focusRing}`}
         >
           <X size={14} aria-hidden="true" />
         </button>
@@ -270,14 +315,17 @@ export default function MonthPicker({
           aria-modal="false"
           aria-label="เลือกเดือนและปี"
           onKeyDown={handlePanelKeyDown}
-          className="absolute left-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-3.5 w-72 sm:w-80"
+          style={{ maxHeight: placement.maxHeight || undefined }}
+          className={`absolute z-50 overflow-y-auto overscroll-contain bg-white rounded-2xl shadow-xl border border-slate-100 p-3.5 w-[min(20rem,calc(100vw-2rem))] ${
+            placement.alignRight ? 'right-0' : 'left-0'
+          } ${placement.above ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
         >
           {/* Year Navigation Header */}
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
             <button
               type="button"
               onClick={() => setViewYear((y) => y - 1)}
-              className={`p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer ${focusRing}`}
+              className={`grid h-11 w-11 place-items-center rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer ${focusRing}`}
               title="ปีก่อนหน้า"
               aria-label="ปีก่อนหน้า"
             >
@@ -292,7 +340,7 @@ export default function MonthPicker({
             <button
               type="button"
               onClick={() => setViewYear((y) => y + 1)}
-              className={`p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer ${focusRing}`}
+              className={`grid h-11 w-11 place-items-center rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer ${focusRing}`}
               title="ปีถัดไป"
               aria-label="ปีถัดไป"
             >
@@ -309,7 +357,7 @@ export default function MonthPicker({
                 onClick={() => setViewYear(y)}
                 aria-pressed={y === viewYear}
                 aria-label={`ปี พ.ศ. ${y}`}
-                className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${focusRing} ${
+                className={`min-h-[44px] px-3 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${focusRing} ${
                   y === viewYear
                     ? 'bg-slate-800 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -339,7 +387,7 @@ export default function MonthPicker({
                   onKeyDown={(e) => handleMonthKeyDown(e, idx)}
                   aria-pressed={isSelected}
                   aria-label={`${thMonth} ${viewYear}`}
-                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${focusRing} ${
+                  className={`flex min-h-[44px] flex-col items-center justify-center py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${focusRing} ${
                     isSelected
                       ? activeBg
                       : isCurrentMonth
@@ -365,14 +413,14 @@ export default function MonthPicker({
             <button
               type="button"
               onClick={() => onChange('')}
-              className={`text-slate-600 hover:text-slate-900 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer ${focusRing}`}
+              className={`inline-flex min-h-[44px] items-center text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer ${focusRing}`}
             >
               ล้างค่า (Clear)
             </button>
             <button
               type="button"
               onClick={handleSetThisMonth}
-              className={`text-slate-700 hover:text-slate-950 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer font-semibold ${focusRing}`}
+              className={`inline-flex min-h-[44px] items-center text-slate-700 hover:text-slate-950 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer font-semibold ${focusRing}`}
             >
               เดือนนี้ (This Month)
             </button>

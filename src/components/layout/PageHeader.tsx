@@ -8,6 +8,9 @@
 // UX-05: secondary text is slate-600 (>= 4.5:1 on white), not slate-400.
 // UX-15: `showReload` keeps the refresh timestamp + reload button off pages that render no sheet
 // data, so every header action applies to what is actually on screen.
+// responsive-audit R08: the hamburger was a bare 24px SVG with no padding — the one control that
+// every phone user has to hit first. It now has an explicit 44px box (h-11 = 49.5px at the 18px
+// root), pulled back by -ml-2 so the icon stays where it always was.
 
 import { Menu, RefreshCw } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -51,7 +54,7 @@ export default function PageHeader({
         <button
           type="button"
           onClick={onMenu}
-          className="lg:hidden shrink-0 text-slate-500 hover:text-slate-700 transition-colors"
+          className="lg:hidden -ml-2 grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
           aria-label="เปิดเมนู"
         >
           <Menu size={24} />
@@ -88,7 +91,7 @@ export default function PageHeader({
             onClick={onReload}
             disabled={loading}
             aria-label={loading ? 'กำลังโหลดข้อมูลใหม่' : 'โหลดข้อมูลใหม่'}
-            className="shrink-0 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60 transition-colors"
+            className="shrink-0 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60 transition-colors"
           >
             <RefreshCw
               size={18}

@@ -194,7 +194,7 @@ export default function SearchableSelect({
                   onChange(String(defaultValue))
                 }
               }}
-              className="p-0.5 rounded-full hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
+              className="grid h-[44px] w-[44px] -my-1.5 place-items-center rounded-full hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
             >
               <X size={14} />
             </span>
@@ -206,11 +206,14 @@ export default function SearchableSelect({
         </div>
       </button>
 
-      {/* Dropdown Popover */}
+      {/* Dropdown Popover.
+          responsive-audit R04: the 220px floor could stick out past a narrower column and, through
+          it, past the viewport edge, and 270px of list plus the search bar was taller than a 360px
+          landscape phone — floor, width and list height are all capped against the viewport now. */}
       {isOpen && (
         <div
           role="listbox"
-          className="absolute left-0 top-full mt-1.5 w-full min-w-[220px] max-w-sm bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+          className="absolute left-0 top-full mt-1.5 w-full min-w-[min(220px,calc(100vw-2rem))] max-w-[min(24rem,calc(100vw-2rem))] bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
         >
           {/* Search Input Bar */}
           <div className="px-2 pb-2 pt-1 border-b border-slate-100">
@@ -246,7 +249,7 @@ export default function SearchableSelect({
           {/* Options List */}
           <ul
             ref={listRef}
-            className="max-h-60 overflow-y-auto px-1.5 py-1 space-y-0.5 scrollbar-thin scrollbar-thumb-slate-200"
+            className="max-h-[min(15rem,45vh)] overflow-y-auto px-1.5 py-1 space-y-0.5 scrollbar-thin scrollbar-thumb-slate-200"
           >
             {filteredOptions.length > 0 ? (
               filteredOptions.map((opt, idx) => {

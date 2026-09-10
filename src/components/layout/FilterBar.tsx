@@ -11,10 +11,11 @@
 // year. Verified against the verification gate: 2569-01..2569-06 selects 335 ชีต2 rows;
 // 2026-01..2026-06 (the un-converted Gregorian equivalent) selects 0.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Calendar,
+  ChevronDown,
   Eye,
   Filter as FilterIcon,
   Flame,
@@ -127,6 +128,11 @@ function sameFilters(a: Filters, b: Filters): boolean {
 
 const ZONE_NUMBERS = Array.from({ length: 13 }, (_, i) => i + 1)
 
+/** The bar only pins itself when the viewport is both wide and tall enough — see the className
+ *  comment on the bar. Kept in one place so the --sticky-offset publisher below cannot drift
+ *  out of sync with the CSS that actually decides whether the bar is sticky. */
+const STICKY_MEDIA = '(min-width: 768px) and (min-height: 600px)'
+
 const inputCls =
   'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-body text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-s1-300 focus:border-s1-400 transition-all shadow-sm'
 const labelCls = 'flex items-center gap-1.5 text-sm font-medium text-slate-600 mb-1.5'
@@ -152,6 +158,12 @@ export default function FilterBar({
   applied,
 }: FilterBarProps) {
   const [local, setLocal] = useState<Filters>(value)
+  // responsive-audit R06: below md the five stacked fields measured 569px tall at 390x820, i.e.
+  // 78% of the screen before any data. The panel therefore starts collapsed on phones and the
+  // draft survives collapsing (only the wrapper is hidden, `local` is untouched); from md up the
+  // grid is always open and this flag is inert.
+  const [fieldsOpen, setFieldsOpen] = useState(false)
+  const fieldsId = useId()
   const barRef = useRef<HTMLDivElement | null>(null)
 
   // Re-sync from the parent's draft on every change that originates OUTSIDE this component.
@@ -184,7 +196,7 @@ export default function FilterBar({
   useEffect(() => {
     const root = document.documentElement
     const el = barRef.current
-    const mq = window.matchMedia('(min-width: 768px)')
+    const mq = window.matchMedia(STICKY_MEDIA)
 
     const publish = () => {
       const barHeight = mq.matches && el ? el.getBoundingClientRect().height : 0
@@ -297,16 +309,53 @@ export default function FilterBar({
       ref={barRef}
       // SPEC 5.2 says this bar is sticky, and it is — from md up, where it is at most two rows
       // (measured 215px at 768, 139px at 1280, i.e. 26-37% of the viewport under the 72px header).
-      // Below md it stacks to one field per row and pinning it is not viable: measured 569px tall
+      // responsive-audit R06: the height half of STICKY_MEDIA matters as much as the width one —
+      // at 844x390 (landscape phone, still >= md) the pinned header+bar measured 379px of a 390px
+      // viewport, 97% of the screen. It only sticks when there is also 600px of height.
+      // Below md it collapses behind a ตัวกรอง toggle and pinning the open form is not viable
+      // either: measured 569px tall
       // at 390x820, so header+bar owned 78% of the screen and the first card's title sat behind it;
       // at 640x360 (landscape phone) the 445px pinned block is TALLER than the viewport, which puts
       // คัดกรอง permanently off-screen. Static below md, so it scrolls away like normal content.
       // `top` is simply inert while the element is static, so no second breakpoint is needed here.
-      className="md:sticky z-20 bg-canvas/95 backdrop-blur border-b border-slate-100 shadow-sm"
+      className="[@media(min-width:768px)_and_(min-height:600px)]:sticky z-20 bg-canvas/95 backdrop-blur border-b border-slate-100 shadow-sm"
       style={{ top: HEADER_HEIGHT_PX }}
     >
       <div className="px-4 sm:px-6 py-3.5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-[repeat(5,minmax(0,1fr))_minmax(max-content,1fr)] gap-3 items-end">
+        {/* responsive-audit R06: compact entry point to the filters on phones. Always paired with
+            the กำลังแสดง summary below, which stays visible whether the panel is open or not. */}
+        <button
+          type="button"
+          onClick={() => setFieldsOpen((v) => !v)}
+          aria-expanded={fieldsOpen}
+          aria-controls={fieldsId}
+          className="md:hidden mb-3 flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+        >
+          <span className="inline-flex items-center gap-2">
+            <FilterIcon size={16} aria-hidden="true" />
+            ตัวกรอง
+            {pending && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-900">
+                ยังไม่ได้ใช้
+              </span>
+            )}
+          </span>
+          <ChevronDown
+            size={18}
+            aria-hidden="true"
+            className={`shrink-0 transition-transform ${fieldsOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {/* responsive-audit R02: auto-fit with a 12rem floor instead of a fixed five-column row.
+            At 1363px the old `repeat(5,1fr) minmax(max-content,1fr)` gave every field 120.5px
+            while the ล้าง button alone took 198.5px, so every selected value was truncated. The
+            action buttons are no longer the sixth grid column — they moved into the summary row
+            below, which keeps the sticky stack at the same two rows it already was (R06). */}
+        <div
+          id={fieldsId}
+          className={`${fieldsOpen ? 'grid' : 'hidden'} md:grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-3 items-end`}
+        >
           {/* จากเดือน */}
           <div>
             <label className={labelCls}>
@@ -388,13 +437,19 @@ export default function FilterBar({
             />
           </div>
 
-          {/* Buttons: ใช้ตัวกรอง & ล้างตัวกรองทั้งหมด */}
-          <div className="flex gap-2 sm:col-span-2 md:col-span-1 xl:col-span-1">
+        </div>
+
+        {/* UX-04: what is pending vs. what is actually on screen. The live region is always in
+            the DOM so screen readers announce the notice when it appears.
+            responsive-audit R02/R06: ใช้ตัวกรอง / ล้าง live on this row now — they wrap here
+            instead of stealing width from the fields, and they stay reachable at 320px. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => onApply(local)}
               aria-label="ใช้ตัวกรองที่เลือก"
-              className={`flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-700 ${accentBtn} ${
+              className={`inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-700 ${accentBtn} ${
                 pending ? 'ring-2 ring-offset-2 ring-amber-500' : ''
               }`}
             >
@@ -404,16 +459,11 @@ export default function FilterBar({
               type="button"
               onClick={onClear}
               aria-label="ล้างตัวกรองทั้งหมด"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 shadow-sm transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 shadow-sm transition-colors cursor-pointer whitespace-nowrap"
             >
               <ClearIcon size={16} aria-hidden="true" /> ล้างตัวกรองทั้งหมด
             </button>
           </div>
-        </div>
-
-        {/* UX-04: what is pending vs. what is actually on screen. The live region is always in
-            the DOM so screen readers announce the notice when it appears. */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <div role="status" aria-live="polite">
             {pending && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400 bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-900">

@@ -265,7 +265,7 @@ export default function EventsTable({
                 type="button"
                 aria-pressed={outOfPeriodOnly}
                 onClick={() => onToggleOutOfPeriodOnly(!outOfPeriodOnly)}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-400 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
+                className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-amber-400 bg-amber-50 px-4 py-1.5 text-xs font-bold text-amber-900 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
               >
                 <AlertTriangle size={14} aria-hidden="true" />
                 {outOfPeriodOnly
@@ -318,7 +318,20 @@ export default function EventsTable({
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        {/* responsive-audit R05: the desktop table stays (a data grid may keep a two-dimensional
+            layout under the WCAG reflow exception), but on a phone the 860px row has to be
+            scrolled to read severity and source. The wrapper is now a named, keyboard-focusable
+            scroll region and says so, with a visible hint above it. A dedicated per-event card
+            list for phones is the larger follow-up this lighter fix does not replace. */}
+        <p className="mb-2 text-xs text-slate-600 md:hidden">
+            ตารางนี้เลื่อนดูแนวนอนได้ — ปัดซ้าย/ขวาเพื่อดูระดับความรุนแรงและลิงก์แหล่งข่าว
+        </p>
+        <div
+          className="relative overflow-x-auto"
+          tabIndex={0}
+          role="region"
+          aria-label="ตารางเหตุการณ์ — เลื่อนดูแนวนอนได้"
+        >
           <table className="w-full min-w-[860px] text-tableText">
             <thead>
               <tr className="border-b border-slate-100 text-left text-slate-600">
@@ -457,7 +470,7 @@ export default function EventsTable({
                 disabled={safePage <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 aria-label="หน้าก่อนหน้า"
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-slate-600 outline-none disabled:opacity-40 enabled:hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 text-slate-600 outline-none disabled:opacity-40 enabled:hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
               >
                 <ChevronLeft size={16} aria-hidden="true" />
               </button>
@@ -466,7 +479,7 @@ export default function EventsTable({
                 disabled={safePage >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 aria-label="หน้าถัดไป"
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 text-slate-600 outline-none disabled:opacity-40 enabled:hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 text-slate-600 outline-none disabled:opacity-40 enabled:hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
               >
                 <ChevronRight size={16} aria-hidden="true" />
               </button>

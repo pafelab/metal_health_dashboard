@@ -121,7 +121,7 @@ function Shell() {
                 type="button"
                 onClick={() => resetChartTypes()}
                 title="รีเซ็ตรูปแบบกราฟทุกการ์ดกลับเป็นค่าเริ่มต้น"
-                className="shrink-0 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                className="shrink-0 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 <RotateCcw size={18} aria-hidden="true" />
                 <span className="hidden sm:inline">รีเซ็ตรูปแบบกราฟ</span>

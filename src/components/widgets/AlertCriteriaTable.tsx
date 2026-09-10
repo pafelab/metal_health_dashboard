@@ -61,7 +61,7 @@ export default function AlertCriteriaTable({ className = '' }: { className?: str
   return (
     <div className={className}>
       {/* md+ : the full matrix. Wide by nature, so it owns its own horizontal scroller. */}
-      <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
+      <div className="relative hidden md:block overflow-x-auto rounded-xl border border-slate-200">
         <table className="w-full min-w-[880px] border-collapse text-sm">
           <caption className="caption-top px-4 pt-3 pb-2 text-left text-sm text-slate-600">
             {CAPTION}

@@ -48,7 +48,7 @@ export default function SectionNav({ targets }: SectionNavProps) {
           key={id}
           type="button"
           onClick={() => scrollToTarget(id)}
-          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm hover:border-s1-300 hover:bg-s1-50 hover:text-s1-700 transition-colors"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm hover:border-s1-300 hover:bg-s1-50 hover:text-s1-700 transition-colors"
         >
           <Icon size={16} aria-hidden="true" />
           {label}

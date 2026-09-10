@@ -72,11 +72,14 @@ function SeverityCard({
         <span className="h-3 w-3 rounded-full" style={{ backgroundColor: entry.color }} aria-hidden="true" />
         ระดับสี{entry.label}
       </p>
-      <h3 className={`my-1 text-kpi font-black ${style.num}`}>
-        {fmt(count)}
-        {/* Audit UX-11/UX-05: name the base of the percentage and darken it to a readable tone. */}
-        <span className="ml-1 text-sm font-bold text-slate-600">({pct(count, total)}% ของทั้งหมด)</span>
-      </h3>
+      {/* responsive-audit R03: the percentage used to sit INSIDE the text-kpi heading, so once
+          the card narrowed it wrapped onto a second 56px line box — the yellow card's heading
+          measured 123.2px against 61.6px for the other two, and everything below it slid down.
+          It is now a sibling with its own normal line height, so the cards stay aligned at any
+          width and with any digit count. */}
+      <h3 className={`my-1 text-kpi font-black leading-none ${style.num}`}>{fmt(count)}</h3>
+      {/* Audit UX-11/UX-05: name the base of the percentage and darken it to a readable tone. */}
+      <p className="mt-1 text-sm font-bold text-slate-600">({pct(count, total)}% ของทั้งหมด)</p>
       {response && (
         <p className={`mt-2 rounded-full bg-white px-3 py-1 text-xs font-bold shadow-sm ${style.text}`}>{response}</p>
       )}
@@ -105,17 +108,24 @@ export default function KpiCards({ section, counts, onDrillDown, activeSeverity 
   const TotalIcon = section === 1 ? Globe : AlertTriangle
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+    /* responsive-audit R09: four columns from xl, not md — a breakpoint chosen from the width
+       the cards actually get, not from the viewport. md:grid-cols-4 gave each card ~168px (124px
+       of content after the p-5 padding), too narrow for a 56px number, and at exactly lg the
+       288px sidebar appears at the same moment, so the content area SHRINKS to 726px there and
+       measured 63px of page overflow out of the total card. Below xl the total card takes the
+       full row and the three severity cards share the next one (~230px each). */
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
       <div className={`relative flex flex-col justify-center overflow-hidden rounded-card ${accentBg} p-5 text-white shadow-card`}>
         <TotalIcon className="absolute -bottom-4 -right-4 h-28 w-28 opacity-20" strokeWidth={1.5} aria-hidden="true" />
         <p className="z-10 mb-1 text-xs font-bold text-white">เหตุการณ์ตรวจสอบทั้งหมด</p>
-        <div className="z-10 flex items-baseline gap-2">
-          <h3 className="text-kpi font-black">{fmt(counts.total)}</h3>
+        {/* responsive-audit R09: wraps rather than pushing the card wider than its column. */}
+        <div className="z-10 flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <h3 className="text-kpi font-black leading-none">{fmt(counts.total)}</h3>
           <span className="text-xs font-bold text-white">เหตุการณ์</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 md:col-span-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 xl:col-span-3">
         <SeverityCard entry={meta.black} count={counts.black} total={counts.total} onDrillDown={onDrillDown} isActive={activeSeverity === 'black'} />
         <SeverityCard entry={meta.red} count={counts.red} total={counts.total} onDrillDown={onDrillDown} isActive={activeSeverity === 'red'} />
         <SeverityCard entry={meta.yellow} count={counts.yellow} total={counts.total} onDrillDown={onDrillDown} isActive={activeSeverity === 'yellow'} />

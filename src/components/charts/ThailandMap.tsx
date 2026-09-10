@@ -6,7 +6,7 @@
 // - Zoom 1.15 for optimal container filling
 // - Optional companion side cards (Selected Area + Top 10 Provinces interactive filter list)
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as echarts from 'echarts'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
@@ -100,6 +100,40 @@ export interface ThailandMapProps {
 /** Unit disclosure shown next to the title and inside the legend (audit UX-10): these maps plot
  *  raw event counts, never a population-adjusted rate. */
 const UNIT_NOTE = 'หน่วย: จำนวนเหตุการณ์ (ไม่ได้ปรับตามประชากร)'
+
+/**
+ * responsive-audit R07: the map's height in px, stepping with the viewport the same way the old
+ * `min-h-[640px] lg:min-h-[740px]` classes did — except the base is 360px, not 640px, so the map
+ * no longer fills a whole phone screen before the province ranking and event table.
+ *
+ * It has to be a NUMBER, not `height: 100%`: ECharts sizes its canvas from the container's
+ * clientHeight at init, and a percentage height inside an auto-height flex column resolves to
+ * zero — measured exactly that (a 0x0 canvas at 375px wide) when this was left to CSS alone.
+ */
+const MAP_HEIGHT_STEPS: { mq: string; px: number }[] = [
+  { mq: '(min-width: 1024px)', px: 740 },
+  { mq: '(min-width: 768px)', px: 560 },
+  { mq: '(min-width: 640px)', px: 460 },
+]
+const MAP_HEIGHT_BASE = 360
+
+function pickMapHeight(): number {
+  if (typeof window === 'undefined' || !window.matchMedia) return MAP_HEIGHT_STEPS[0].px
+  return MAP_HEIGHT_STEPS.find((s) => window.matchMedia(s.mq).matches)?.px ?? MAP_HEIGHT_BASE
+}
+
+function useMapHeight(explicit?: number): number {
+  const [height, setHeight] = useState<number>(() => explicit ?? pickMapHeight())
+  useEffect(() => {
+    if (explicit) return
+    const update = () => setHeight(pickMapHeight())
+    const lists = MAP_HEIGHT_STEPS.map((s) => window.matchMedia(s.mq))
+    lists.forEach((l) => l.addEventListener('change', update))
+    update()
+    return () => lists.forEach((l) => l.removeEventListener('change', update))
+  }, [explicit])
+  return explicit ?? height
+}
 
 const RAMP_S1 = ['#FFF7ED', '#FDBA74', '#F97316', '#C2410C']
 const RAMP_S2 = ['#EFF6FF', '#93C5FD', '#3B82F6', '#1D4ED8']
@@ -292,7 +326,7 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
     typeof p.baselineTotal === 'number' && Number.isFinite(p.baselineTotal) && p.baselineTotal !== totalCount
 
   const maxProvVal = top10[0]?.value || 1
-  const chartHeight = p.height ?? 680
+  const chartHeight = useMapHeight(p.height)
 
   // UX-13 — the choropleth needs an equivalent numerical table, available on every map card
   // (including section 2's, which has no companion top-10 list).
@@ -310,7 +344,8 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
 
   const mapCard = (
     <div className="bg-white rounded-card shadow-card overflow-hidden h-full flex flex-col">
-      <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-2 flex-none">
+      {/* responsive-audit R01: same wrapping header as Card.tsx — title never clipped. */}
+      <div className="flex flex-wrap items-start justify-between gap-3 px-6 pt-5 pb-2 flex-none">
         <div className="flex items-start gap-3 min-w-0">
           <span
             className={`shrink-0 grid place-items-center w-10 h-10 rounded-xl ${
@@ -321,13 +356,13 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
             <MapPin size={20} strokeWidth={2.25} />
           </span>
           <div className="min-w-0">
-            <h3 className="font-sans font-bold text-cardTitle text-slate-800 truncate">{p.title}</h3>
+            <h3 className="font-sans font-bold text-cardTitle text-slate-800 leading-snug">{p.title}</h3>
             <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
             <p className="text-sm text-slate-600 mt-0.5">{UNIT_NOTE}</p>
           </div>
         </div>
         {tableRows.length > 0 && (
-          <div className="flex-none">
+          <div className="ml-auto flex-none">
             <TableToggle
               pressed={showTable}
               onToggle={() => setShowTable((v) => !v)}
@@ -353,15 +388,21 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
           <p className="mt-2 text-sm text-slate-600 leading-relaxed">{tableSummary}</p>
         </div>
       ) : (
+        /* responsive-audit R07: the base rule used to reserve 640px of map (680px of canvas) on
+           every screen below lg, so on a 568px-tall phone the map alone was taller than the
+           viewport and pushed the province ranking and the event table out of reach. Both the box
+           and the canvas now take the same stepped height from useMapHeight; the ranking list and
+           the จังหวัด filter remain the non-map ways to pick a province. */
         <div
-          className="px-3 pb-4 sm:px-4 sm:pb-6 flex-1 flex flex-col min-h-[640px] lg:min-h-[740px]"
+          className="px-3 pb-4 sm:px-4 sm:pb-6 flex-1 flex flex-col"
+          style={{ minHeight: chartHeight }}
           role="img"
           aria-label={`${p.title} แผนภูมิแผนที่ · ${UNIT_NOTE}`}
         >
           <ReactECharts
             option={option}
             onEvents={onEvents}
-            style={{ height: '100%', minHeight: chartHeight, width: '100%', flex: 1 }}
+            style={{ height: chartHeight, width: '100%' }}
             notMerge
             lazyUpdate
           />

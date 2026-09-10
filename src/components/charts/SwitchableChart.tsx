@@ -76,7 +76,9 @@ const PRESSED_LABEL_BG: Record<'s1' | 's2', string> = {
   s2: PALETTE.section2,
 }
 
-/** 'ดูข้อมูลเป็นตาราง' toggle — the accessible equivalent of the plot (audit UX-13). */
+/** 'ดูข้อมูลเป็นตาราง' toggle — the accessible equivalent of the plot (audit UX-13).
+ *  responsive-audit R08: h-10 (45px at the 18px root) meets the 44px project hit-area target;
+ *  the previous h-8 measured 36px. Same for the chart-type buttons below. */
 export function TableToggle({
   pressed,
   onToggle,
@@ -94,7 +96,7 @@ export function TableToggle({
       aria-label="ดูข้อมูลเป็นตาราง"
       title="ดูข้อมูลเป็นตาราง"
       onClick={onToggle}
-      className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm font-medium transition-colors ${FOCUS_RING}`}
+      className={`flex h-10 min-w-[44px] items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors ${FOCUS_RING}`}
       style={
         pressed
           ? { backgroundColor: accentColor, color: '#fff' }
@@ -120,7 +122,8 @@ function ChartTypeSwitcher({
 }): JSX.Element {
   const accentColor = accent === 's2' ? PALETTE.section2 : PALETTE.section1
   return (
-    <div className="flex items-center gap-1" role="group" aria-label="เลือกรูปแบบกราฟ">
+    /* responsive-audit R01: wraps inside a narrow card instead of overflowing it. */
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="เลือกรูปแบบกราฟ">
       {allowedTypes.filter(isRenderable).map((t) => {
         const Icon = TYPE_ICON[t]
         const isActive = t === active
@@ -132,7 +135,7 @@ function ChartTypeSwitcher({
             aria-label={TYPE_LABEL_TH[t]}
             aria-pressed={isActive}
             onClick={() => onChange(t)}
-            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${FOCUS_RING}`}
+            className={`flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${FOCUS_RING}`}
             style={
               isActive
                 ? { backgroundColor: accentColor, color: '#fff' }
@@ -230,7 +233,7 @@ export default function SwitchableChart(p: SwitchableChartProps): JSX.Element {
       accent={accent}
       right={
         isEmpty ? undefined : (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {allowed.length > 1 && !showTable && (
               <ChartTypeSwitcher
                 allowedTypes={allowed}
@@ -331,7 +334,7 @@ export function MultiSeriesChart(p: MultiSeriesChartProps): JSX.Element {
       accent={accent}
       right={
         isEmpty ? undefined : (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {allowed.length > 1 && !showTable && (
               <ChartTypeSwitcher
                 allowedTypes={allowed}

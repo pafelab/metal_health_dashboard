@@ -174,7 +174,7 @@ function Switcher({ current, onChange }: { current: ChartType; onChange: (t: Cha
           title={label}
           aria-pressed={current === type}
           onClick={() => onChange(type)}
-          className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-s1-700 ${
+          className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-s1-700 ${
             current === type ? 'bg-white text-s1-600 shadow-card' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
@@ -197,7 +197,7 @@ function TableView({
   maxVal: number
 }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[560px] text-tableText">
         <thead>
           <tr className="border-b border-slate-100 text-left text-slate-600">

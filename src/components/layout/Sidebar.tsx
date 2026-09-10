@@ -6,6 +6,7 @@
 // reload button is gone: the header's reload is the single primary refresh control. The brand
 // block spells out MHSO / DMH in Thai on first use and wraps rather than clipping.
 // UX-05: the footer address uses slate-500 (>= 4.5:1 on white); icon colours are unchanged.
+// responsive-audit R08: the drawer's close control was a bare 22px SVG; it now has a 44px box.
 
 import { icons, X } from 'lucide-react'
 import { NAV_TABS } from '@/config'
@@ -43,7 +44,7 @@ export default function Sidebar({ active, onNavigate, open, onClose }: SidebarPr
         <button
           type="button"
           onClick={onClose}
-          className="lg:hidden shrink-0 text-slate-400 hover:text-slate-600 transition-colors"
+          className="lg:hidden -mr-2 -mt-2 grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-colors"
           aria-label="ปิดเมนู"
         >
           <X size={22} />
