@@ -1,0 +1,3 @@
+## 2026-09-10 - Fixed-Category Data Aggregation Patterns
+**Learning:** Functions in `src/data/aggregate.ts` (e.g., `countBy`, `impactByPatientGroup`, `ageBandByGender`) were running nested `O(M * N)` loops comparing target labels with raw data keys using regex-based whitespace collapsing (`collapseWs`). Pre-collapsing raw keys into Map lookups once before matching fixed order arrays eliminates redundant regex evaluations and converts `O(M * N)` complexity to `O(N)`.
+**Action:** When aggregating fixed category arrays or order lists against dataset keys, always pre-map and pre-normalize dataset keys into lookups rather than normalizing in nested iterations.
