@@ -43,16 +43,26 @@ export function countBy<T>(rows: T[], pick: (row: T) => string, order?: string[]
       .sort((a, b) => b.value - a.value)
   }
 
+  // Pre-collapse raw counts once to map collapsed raw keys to total counts and raw strings,
+  // replacing an O(|order| * |rawCounts|) nested loop with O(|rawCounts| + |order|) Map lookups.
+  const collapsedRawCounts = new Map<string, number>()
+  const collapsedToRaws = new Map<string, string[]>()
+  for (const [raw, count] of rawCounts.entries()) {
+    const collapsed = collapseWs(raw)
+    collapsedRawCounts.set(collapsed, (collapsedRawCounts.get(collapsed) ?? 0) + count)
+    const raws = collapsedToRaws.get(collapsed)
+    if (raws) raws.push(raw)
+    else collapsedToRaws.set(collapsed, [raw])
+  }
+
   const consumed = new Set<string>()
   const result: CategoryCount[] = order.map((label) => {
     const target = collapseWs(label)
-    let value = 0
-    rawCounts.forEach((count, raw) => {
-      if (collapseWs(raw) === target) {
-        value += count
-        consumed.add(raw)
-      }
-    })
+    const value = collapsedRawCounts.get(target) ?? 0
+    const raws = collapsedToRaws.get(target)
+    if (raws) {
+      for (let i = 0; i < raws.length; i++) consumed.add(raws[i])
+    }
     return { name: label, value }
   })
 
@@ -218,18 +228,28 @@ export function ageBandByGender(rows: { ageBand: string; gender: string }[]): {
   female: number
   total: number
 }[] {
-  return AGE_BANDS.map((band) => {
-    let male = 0
-    let female = 0
-    let total = 0
-    for (const row of rows) {
-      if (row.ageBand !== band.label) continue
-      total++
-      const g = collapseWs(row.gender)
-      if (g === 'ชาย') male++
-      else if (g === 'หญิง') female++
+  // Accumulate age band counts in a single O(N) pass over rows instead of 6 passes (one per age band)
+  const countsByBand = new Map<string, { male: number; female: number; total: number }>()
+  for (const row of rows) {
+    let entry = countsByBand.get(row.ageBand)
+    if (!entry) {
+      entry = { male: 0, female: 0, total: 0 }
+      countsByBand.set(row.ageBand, entry)
     }
-    return { band: band.label, male, female, total }
+    entry.total++
+    const g = collapseWs(row.gender)
+    if (g === 'ชาย') entry.male++
+    else if (g === 'หญิง') entry.female++
+  }
+
+  return AGE_BANDS.map((band) => {
+    const entry = countsByBand.get(band.label)
+    return {
+      band: band.label,
+      male: entry ? entry.male : 0,
+      female: entry ? entry.female : 0,
+      total: entry ? entry.total : 0,
+    }
   })
 }
 
@@ -263,18 +283,31 @@ export function impactByPatientGroup(rows: { patientGroup: string; deaths: numbe
     sums.set(v, cur)
   }
 
+  // Pre-collapse raw keys once to replace O(|order| * |sums|) nested loop with Map lookups
+  const collapsedSums = new Map<string, { deaths: number; injured: number }>()
+  const collapsedToRaws = new Map<string, string[]>()
+  for (const [raw, val] of sums.entries()) {
+    const collapsed = collapseWs(raw)
+    const cur = collapsedSums.get(collapsed) ?? { deaths: 0, injured: 0 }
+    cur.deaths += val.deaths
+    cur.injured += val.injured
+    collapsedSums.set(collapsed, cur)
+
+    const raws = collapsedToRaws.get(collapsed)
+    if (raws) raws.push(raw)
+    else collapsedToRaws.set(collapsed, [raw])
+  }
+
   const consumed = new Set<string>()
   const result = CATEGORY_ORDERS.patientGroup.map((label) => {
     const target = collapseWs(label)
-    let deaths = 0
-    let injured = 0
-    sums.forEach((val, raw) => {
-      if (collapseWs(raw) === target) {
-        deaths += val.deaths
-        injured += val.injured
-        consumed.add(raw)
-      }
-    })
+    const val = collapsedSums.get(target)
+    const deaths = val ? val.deaths : 0
+    const injured = val ? val.injured : 0
+    const raws = collapsedToRaws.get(target)
+    if (raws) {
+      for (let i = 0; i < raws.length; i++) consumed.add(raws[i])
+    }
     return { group: label, deaths, injured }
   })
 
@@ -301,7 +334,9 @@ function joinRiskSignCells(riskCells: string[], signCells: string[]): string {
  * `affected` count are scoped the same way M stays a true subset of N.
  */
 export function riskFactors(rows: SLEvent[]): { items: CategoryCount[]; denominator: number; affected: number } {
-  const oldPatientRows = rows.filter((r) => collapseWs(r.patientClass) === collapseWs(CATEGORY_ORDERS.patientClass[0]))
+  // Pre-compute invariant target class outside filter loop
+  const targetClass = collapseWs(CATEGORY_ORDERS.patientClass[0])
+  const oldPatientRows = rows.filter((r) => collapseWs(r.patientClass) === targetClass)
   const denominator = oldPatientRows.length
   const items: CategoryCount[] = RISK_KEYWORDS.map((k) => ({ name: k.label, value: 0 }))
   let affected = 0
