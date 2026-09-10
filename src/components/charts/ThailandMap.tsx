@@ -6,13 +6,16 @@
 // - Zoom 1.15 for optimal container filling
 // - Optional companion side cards (Selected Area + Top 10 Provinces interactive filter list)
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import * as echarts from 'echarts'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 import { MapPin } from 'lucide-react'
 import type { CategoryCount } from '@/types'
 import { ZONE_PROVINCES } from '@/config'
+import { prefersReducedMotion } from './chartOptions'
+import DataTable, { summaryText } from './DataTable'
+import { TableToggle } from './SwitchableChart'
 // eslint-disable-next-line import/no-unresolved
 import geoRaw from '@/assets/thailand.json'
 
@@ -87,7 +90,16 @@ export interface ThailandMapProps {
   height?: number
   showSideCards?: boolean
   takeaway?: string
+  /** Comparison baseline: the same period + non-geographic filters, WITHOUT the geographic
+   *  restriction that produced `data` (audit UX-01). Percentages are computed against this. */
+  baselineTotal?: number
+  /** Human name of that baseline scope, e.g. 'ทั้งประเทศ' or 'เขตสุขภาพที่ 8'. */
+  baselineLabel?: string
 }
+
+/** Unit disclosure shown next to the title and inside the legend (audit UX-10): these maps plot
+ *  raw event counts, never a population-adjusted rate. */
+const UNIT_NOTE = 'หน่วย: จำนวนเหตุการณ์ (ไม่ได้ปรับตามประชากร)'
 
 const RAMP_S1 = ['#FFF7ED', '#FDBA74', '#F97316', '#C2410C']
 const RAMP_S2 = ['#EFF6FF', '#93C5FD', '#3B82F6', '#1D4ED8']
@@ -131,6 +143,7 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
   const option = useMemo<EChartsOption>(() => {
     return {
       textStyle: { fontFamily: FONT },
+      animation: !prefersReducedMotion(),
       tooltip: {
         trigger: 'item',
         confine: true,
@@ -156,7 +169,8 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
         itemHeight: 120,
         itemWidth: 12,
         calculable: false,
-        text: [String(maxVal), '0'],
+        // The legend states the unit, so the colour ramp cannot be read as a rate (audit UX-10).
+        text: [`${maxVal} เหตุการณ์`, '0 เหตุการณ์'],
         inRange: { color: ramp },
         textStyle: { fontFamily: FONT, fontSize: 13, color: '#64748B' },
       },
@@ -209,25 +223,48 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
 
   const subtitle = p.subtitle ?? (p.mode === 'country' ? 'ใช้เลือกพื้นที่ · คลิกจังหวัดเพื่อกรองทุกการ์ดในหน้านี้' : `${provinceCount} จังหวัด`)
 
+  /** Compares the two leading provinces using the values actually plotted (audit UX-10):
+   *  no hard-coded geography claim, and the exact difference + ratio instead of "เกือบสองเท่า". */
+  const rankingSentence = useMemo(() => {
+    const top1 = top10[0]
+    const top2 = top10[1]
+    if (!top1 || top1.value <= 0) return ''
+    const head = `${top1.name} ${top1.value.toLocaleString()} เหตุการณ์`
+    if (!top2 || top2.value <= 0) return `${head} สูงสุดในขอบเขตที่เลือก`
+    const other = `${top2.name} (${top2.value.toLocaleString()} เหตุการณ์)`
+    if (top1.value === top2.value) return `${head} เท่ากับ${other}`
+    const diff = top1.value - top2.value
+    const ratio = (top1.value / top2.value).toFixed(1)
+    return `${head} มากกว่า${other} อยู่ ${diff.toLocaleString()} เหตุการณ์ (${ratio} เท่า)`
+  }, [top10])
+
   const takeawayText = useMemo(() => {
     if (p.takeaway) return p.takeaway
     if (p.selectedProvince) {
       return `กำลังแสดงข้อมูลเฉพาะ ${p.selectedProvince} (คลิกจังหวัดอีกครั้งหรือกดปุ่มล้างเพื่อแสดงทั้งหมด)`
     }
     if (p.mode === 'country') {
-      const top1 = top10[0]
-      const top2 = top10[1]
-      if (top1 && top1.value > 0) {
-        const diffText =
-          top2 && top2.value > 0 && top1.value >= top2.value * 1.5
-            ? ` มากกว่าจังหวัดอันดับสอง (${top2.name} ${top2.value.toLocaleString()} เหตุการณ์) เกือบสองเท่า`
-            : ''
-        return `ภาคกลางและภาคอีสานตอนล่างมีเหตุการณ์หนาแน่นที่สุด ${top1.name} ${top1.value.toLocaleString()} เหตุการณ์${diffText}`
-      }
-      return 'ใช้เลือกพื้นที่ · คลิกจังหวัดเพื่อกรองทุกการ์ดในหน้านี้'
+      return rankingSentence || 'ใช้เลือกพื้นที่ · คลิกจังหวัดเพื่อกรองทุกการ์ดในหน้านี้'
     }
-    return `เขตสุขภาพที่ ${p.zone} มีทั้งหมด ${provinceCount} จังหวัด รวม ${totalCount.toLocaleString()} เหตุการณ์`
-  }, [p.takeaway, p.selectedProvince, p.mode, p.zone, provinceCount, top10, totalCount])
+    // zone mode with zone === 'all' aggregates the whole country, so the narrative must not claim
+    // a single health zone (audit UX-10: stated scope has to match the actual aggregation).
+    const scopeName = isZoneScoped ? `เขตสุขภาพที่ ${p.zone}` : 'ทั้งประเทศ'
+    const zoneHead = `${scopeName} ครอบคลุม ${provinceCount} จังหวัด รวม ${totalCount.toLocaleString()} เหตุการณ์`
+    return rankingSentence ? `${zoneHead} · ${rankingSentence}` : zoneHead
+  }, [
+    p.takeaway,
+    p.selectedProvince,
+    p.mode,
+    p.zone,
+    isZoneScoped,
+    provinceCount,
+    rankingSentence,
+    totalCount,
+  ])
+
+  /** Scope the percentage is measured against — never the already-filtered total, which would
+   *  always render a selected province as 100% (audit UX-01). */
+  const baselineLabel = p.baselineLabel ?? (p.mode === 'zone' ? 'เขต' : 'ทั้งประเทศ')
 
   const selectedInfo = useMemo(() => {
     if (!p.selectedProvince) return null
@@ -235,12 +272,41 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
     const val = hit ? hit.value : 0
     const zoneNum =
       Object.entries(ZONE_PROVINCES).find(([_, provs]) => provs.includes(p.selectedProvince!))?.[0] ?? '-'
-    const pct = totalCount > 0 ? ((val / totalCount) * 100).toFixed(1) : '0.0'
+    const base = p.baselineTotal
+    const hasBase = typeof base === 'number' && Number.isFinite(base) && base > 0
+    const pct = hasBase ? ((val / (base as number)) * 100).toFixed(1) : null
     return { name: p.selectedProvince, value: val, zoneNum, pct }
-  }, [p.selectedProvince, p.data, totalCount])
+  }, [p.selectedProvince, p.data, p.baselineTotal])
+
+  /** What the unselected count actually covers: the map's own scope, which is narrower than the
+   *  baseline whenever a zone filter is applied (audit UX-01: state the comparison scope). */
+  const scopeLabel =
+    p.mode === 'zone' && typeof p.zone === 'number'
+      ? `เขตสุขภาพที่ ${p.zone}`
+      : totalCount === p.baselineTotal
+      ? baselineLabel
+      : p.baselineTotal === undefined
+      ? 'ทั้งประเทศ'
+      : 'ขอบเขตที่เลือก'
+  const showBaselineLine =
+    typeof p.baselineTotal === 'number' && Number.isFinite(p.baselineTotal) && p.baselineTotal !== totalCount
 
   const maxProvVal = top10[0]?.value || 1
   const chartHeight = p.height ?? 680
+
+  // UX-13 — the choropleth needs an equivalent numerical table, available on every map card
+  // (including section 2's, which has no companion top-10 list).
+  const [showTable, setShowTable] = useState(false)
+  const tableRows = useMemo(() => [...p.data].sort((a, b) => b.value - a.value), [p.data])
+  const tableCategories = useMemo(() => tableRows.map((d) => d.name), [tableRows])
+  const tableSeries = useMemo(
+    () => [{ name: 'จำนวน', values: tableRows.map((d) => d.value) }],
+    [tableRows],
+  )
+  const tableSummary = useMemo(
+    () => summaryText({ categories: tableCategories, series: tableSeries, unit: 'เหตุการณ์' }),
+    [tableCategories, tableSeries],
+  )
 
   const mapCard = (
     <div className="bg-white rounded-card shadow-card overflow-hidden h-full flex flex-col">
@@ -257,23 +323,50 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
           <div className="min-w-0">
             <h3 className="font-sans font-bold text-cardTitle text-slate-800 truncate">{p.title}</h3>
             <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
+            <p className="text-sm text-slate-600 mt-0.5">{UNIT_NOTE}</p>
           </div>
         </div>
+        {tableRows.length > 0 && (
+          <div className="flex-none">
+            <TableToggle
+              pressed={showTable}
+              onToggle={() => setShowTable((v) => !v)}
+              accent={p.accent}
+            />
+          </div>
+        )}
       </div>
       {takeawayText && (
         <p className="px-6 pt-1 pb-1 text-[15px] sm:text-base text-slate-600 leading-relaxed max-w-[75ch] flex-none">
           {takeawayText}
         </p>
       )}
-      <div className="px-3 pb-4 sm:px-4 sm:pb-6 flex-1 flex flex-col min-h-[640px] lg:min-h-[740px]">
-        <ReactECharts
-          option={option}
-          onEvents={onEvents}
-          style={{ height: '100%', minHeight: chartHeight, width: '100%', flex: 1 }}
-          notMerge
-          lazyUpdate
-        />
-      </div>
+      {showTable ? (
+        <div className="px-4 pb-6 sm:px-6 flex-1">
+          <DataTable
+            caption={`${p.title} · ${UNIT_NOTE}`}
+            categories={tableCategories}
+            series={tableSeries}
+            categoryHeader="จังหวัด"
+            maxHeight={chartHeight}
+          />
+          <p className="mt-2 text-sm text-slate-600 leading-relaxed">{tableSummary}</p>
+        </div>
+      ) : (
+        <div
+          className="px-3 pb-4 sm:px-4 sm:pb-6 flex-1 flex flex-col min-h-[640px] lg:min-h-[740px]"
+          role="img"
+          aria-label={`${p.title} แผนภูมิแผนที่ · ${UNIT_NOTE}`}
+        >
+          <ReactECharts
+            option={option}
+            onEvents={onEvents}
+            style={{ height: '100%', minHeight: chartHeight, width: '100%', flex: 1 }}
+            notMerge
+            lazyUpdate
+          />
+        </div>
+      )}
     </div>
   )
 
@@ -296,8 +389,9 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
               <button
                 type="button"
                 onClick={p.onClearProvince}
-                className={`text-sm font-semibold hover:underline transition-colors ${
-                  p.accent === 's1' ? 'text-s1-600 hover:text-s1-700' : 'text-s2-600 hover:text-s2-700'
+                aria-label={`ล้างจังหวัดที่เลือก (${p.selectedProvince})`}
+                className={`rounded text-sm font-semibold hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-600 focus-visible:ring-offset-1 ${
+                  p.accent === 's1' ? 'text-s1-700 hover:text-s1-800' : 'text-s2-600 hover:text-s2-700'
                 }`}
               >
                 ล้าง
@@ -317,17 +411,35 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
                   >
                     {selectedInfo.value.toLocaleString()}
                   </span>
-                  <span className="text-sm text-slate-500">
-                    เหตุการณ์ · {selectedInfo.pct}% ของ{p.mode === 'zone' ? 'เขต' : 'ทั้งประเทศ'}
-                  </span>
+                  {selectedInfo.pct !== null ? (
+                    <span className="text-sm text-slate-600">
+                      เหตุการณ์ · {selectedInfo.pct}% ของ{baselineLabel}ในช่วงเวลาเดียวกัน
+                    </span>
+                  ) : (
+                    <span
+                      className="text-sm text-slate-600"
+                      title="ไม่สามารถคำนวณสัดส่วนได้ (ไม่มีฐานเปรียบเทียบ)"
+                    >
+                      เหตุการณ์ · สัดส่วนของ{baselineLabel} —
+                    </span>
+                  )}
                 </div>
+                {selectedInfo.pct === null && (
+                  <p className="mt-1 text-sm text-slate-600">
+                    ไม่สามารถคำนวณสัดส่วนได้ (ไม่มีฐานเปรียบเทียบ)
+                  </p>
+                )}
               </div>
             ) : (
               <div>
                 <p className="text-slate-800 text-[17px]">
-                  {p.mode === 'zone' ? `เขตสุขภาพที่ ${p.zone}` : 'ทั้งประเทศ'} ·{' '}
-                  <b className="font-bold">{totalCount.toLocaleString()}</b> เหตุการณ์
+                  {scopeLabel} · <b className="font-bold">{totalCount.toLocaleString()}</b> เหตุการณ์
                 </p>
+                {showBaselineLine && (
+                  <p className="mt-1 text-sm text-slate-600">
+                    จาก{baselineLabel} {(p.baselineTotal as number).toLocaleString()} เหตุการณ์ในช่วงเวลาเดียวกัน
+                  </p>
+                )}
                 <p className="mt-2 text-sm text-slate-500 leading-relaxed">
                   คลิกจังหวัดบนแผนที่ หรือเลือกจากรายการด้านล่าง เพื่อกรองการ์ดและตารางทั้งหน้า
                 </p>
@@ -340,7 +452,7 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
         <div className="bg-white rounded-card shadow-card p-6">
           <div className="flex items-baseline justify-between gap-3 mb-2">
             <h3 className="font-sans font-bold text-lg text-slate-800">10 อันดับจังหวัด</h3>
-            <span className="text-xs text-slate-400">คลิกเพื่อเลือก</span>
+            <span className="text-xs text-slate-500">คลิกเพื่อเลือก</span>
           </div>
           <div className="space-y-1">
             {top10.map((prov) => {
@@ -357,7 +469,8 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
                       p.onProvinceClick?.(prov.name)
                     }
                   }}
-                  className={`w-full text-left rounded-xl px-3 py-2 transition-all ${
+                  aria-pressed={isSelected}
+                  className={`w-full text-left rounded-xl px-3 py-2 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-600 focus-visible:ring-offset-1 ${
                     isSelected
                       ? p.accent === 's1'
                         ? 'bg-orange-50 ring-1 ring-orange-200'

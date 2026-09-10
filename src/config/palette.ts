@@ -6,6 +6,10 @@
 export interface Palette {
   background: string
   card: string
+  /** Secondary text on white — #475569, ~7.5:1 (UX-05; slate-400 fails 4.5:1). */
+  textSecondary: string
+  /** Lightest text still passing 4.5:1 on white — #64748B (UX-05). */
+  textMuted: string
   section1: string
   section2: string
   severity: { black: string; red: string; yellow: string; unknown: string }
@@ -18,6 +22,11 @@ export interface Palette {
 export const PALETTE: Palette = {
   background: '#F5F7FB',
   card: '#FFFFFF',
+
+  // Text tokens (UX-05). Any TEXT drawn in slate-400 (#94A3B8) misses the 4.5:1 minimum on
+  // white; these two are the replacements. Icons may still use the lighter slate.
+  textSecondary: '#475569',
+  textMuted: '#64748B',
 
   // Section 1 (Social Listening) primary — orange family.
   section1: '#EA580C',

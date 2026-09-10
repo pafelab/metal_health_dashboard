@@ -9,6 +9,7 @@ import { Megaphone, Siren } from 'lucide-react'
 import type { SLEvent, HazardEvent } from '@/types'
 import { applyFilters, computeTimeliness } from '@/data'
 import type { UseFiltersResult } from '@/hooks/useFilters'
+import { useFilterUrlSync } from '@/hooks/useFilterUrlSync'
 import FilterBar from '@/components/layout/FilterBar'
 import SectionNav from '@/components/layout/SectionNav'
 import TimelinessCard from '@/components/widgets/TimelinessCard'
@@ -22,9 +23,21 @@ export interface ZonePageProps {
 }
 
 export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
-  const { draft, applied, setDraft, apply, clear, setProvinceAndApply } = filters
+  const { draft, applied, setDraft, apply, clear, setProvinceAndApply, clearProvince } = filters
+
+  // UX-04: the applied filters live in the hash query so a filtered view can be shared.
+  useFilterUrlSync(filters, '#/zone')
 
   const filtered = useMemo(() => applyFilters(sl, hz, applied), [sl, hz, applied])
+
+  // UX-01: on the zone tab the comparison scope is the ZONE (province restriction removed),
+  // falling back to the whole country when no single zone is selected.
+  const baseline = useMemo(
+    () => applyFilters(sl, hz, { ...applied, province: '' }),
+    [sl, hz, applied],
+  )
+  const baselineLabel =
+    applied.zone === 'all' ? 'ทั้งประเทศ' : `เขตสุขภาพที่ ${applied.zone}`
 
   const timeliness = useMemo(
     () => computeTimeliness([...filtered.sl, ...filtered.hz]),
@@ -48,21 +61,23 @@ export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
           apply()
         }}
         onClear={clear}
+        applied={applied}
         zoneMode
       />
       <SectionNav targets={navTargets} />
 
       <div className="px-4 sm:px-6 py-6 space-y-10">
-        <TimelinessCard result={timeliness} />
-
         {showSection1 && (
           <SocialListeningSection
             rows={filtered.sl}
             zoneMode
             zone={applied.zone}
             onProvinceClick={setProvinceAndApply}
-            selectedProvince={applied.province !== 'all' ? applied.province : undefined}
-            onClearProvince={() => setProvinceAndApply('all')}
+            // Filters.province '' means "ทุกจังหวัด" — 'all' is not a province name.
+            selectedProvince={applied.province !== '' ? applied.province : undefined}
+            onClearProvince={clearProvince}
+            baselineTotal={baseline.sl.length}
+            baselineLabel={baselineLabel}
           />
         )}
         {showSection2 && (
@@ -71,8 +86,18 @@ export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
             zoneMode
             zone={applied.zone}
             onProvinceClick={setProvinceAndApply}
+            // Filters.province '' means "ทุกจังหวัด" — 'all' is not a province name.
+            selectedProvince={applied.province !== '' ? applied.province : undefined}
+            onClearProvince={clearProvince}
+            baselineTotal={baseline.hz.length}
+            baselineLabel={baselineLabel}
           />
         )}
+
+        {/* UX-09 — the ~650px timeliness card (score + criteria legend) is detail, not overview:
+            it used to push the sections' totals and severity summary below the fold on every
+            common desktop height, so it now follows them. */}
+        <TimelinessCard result={timeliness} />
       </div>
     </>
   )

@@ -7,6 +7,7 @@ import { Megaphone, Siren } from 'lucide-react'
 import type { SLEvent, HazardEvent } from '@/types'
 import { applyFilters } from '@/data'
 import type { UseFiltersResult } from '@/hooks/useFilters'
+import { useFilterUrlSync } from '@/hooks/useFilterUrlSync'
 import FilterBar from '@/components/layout/FilterBar'
 import SectionNav from '@/components/layout/SectionNav'
 import SocialListeningSection from '@/components/sections/SocialListeningSection'
@@ -19,9 +20,20 @@ export interface DashboardPageProps {
 }
 
 export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
-  const { draft, applied, setDraft, apply, clear, setProvinceAndApply } = filters
+  const { draft, applied, setDraft, apply, clear, setProvinceAndApply, clearProvince } = filters
+
+  // UX-04: the applied filters live in the hash query so a filtered view can be shared.
+  useFilterUrlSync(filters, '#/dashboard')
 
   const filtered = useMemo(() => applyFilters(sl, hz, applied), [sl, hz, applied])
+
+  // UX-01: the denominator for "% ของทั้งประเทศ" — the SAME period and hazard type, but with
+  // every geographic restriction removed. Without this, a province was compared against itself
+  // and always read 100%.
+  const baseline = useMemo(
+    () => applyFilters(sl, hz, { ...applied, zone: 'all', province: '' }),
+    [sl, hz, applied],
+  )
 
   // SPEC 5.2: 'Social Listening' hides Section 2; any ภัยอื่นๆ value hides Section 1; ทั้งหมด
   // shows both. Decided directly from applied.hazardType, never from an empty rows array.
@@ -42,6 +54,7 @@ export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
           apply()
         }}
         onClear={clear}
+        applied={applied}
       />
       <SectionNav targets={navTargets} />
 
@@ -50,12 +63,23 @@ export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
           <SocialListeningSection
             rows={filtered.sl}
             onProvinceClick={setProvinceAndApply}
-            selectedProvince={applied.province !== 'all' ? applied.province : undefined}
-            onClearProvince={() => setProvinceAndApply('all')}
+            // Filters.province '' means "ทุกจังหวัด" — 'all' is not a province name.
+            selectedProvince={applied.province !== '' ? applied.province : undefined}
+            onClearProvince={clearProvince}
+            baselineTotal={baseline.sl.length}
+            baselineLabel="ทั้งประเทศ"
           />
         )}
         {showSection2 && (
-          <OtherHazardsSection rows={filtered.hz} onProvinceClick={setProvinceAndApply} />
+          <OtherHazardsSection
+            rows={filtered.hz}
+            onProvinceClick={setProvinceAndApply}
+            // Filters.province '' means "ทุกจังหวัด" — 'all' is not a province name.
+            selectedProvince={applied.province !== '' ? applied.province : undefined}
+            onClearProvince={clearProvince}
+            baselineTotal={baseline.hz.length}
+            baselineLabel="ทั้งประเทศ"
+          />
         )}
       </div>
     </>

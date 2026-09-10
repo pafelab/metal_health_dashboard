@@ -11,9 +11,11 @@
 // year. Verified against the verification gate: 2569-01..2569-06 selects 335 ชีต2 rows;
 // 2026-01..2026-06 (the un-converted Gregorian equivalent) selects 0.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertTriangle,
   Calendar,
+  Eye,
   Filter as FilterIcon,
   Flame,
   Map,
@@ -24,6 +26,8 @@ import type { Filters } from '@/types'
 import {
   ALL_PROVINCES,
   HAZARD_FILTER_OPTIONS,
+  HAZARD_TYPES,
+  MONTH_ABBR,
   PROVINCE_ALIASES,
   PROVINCE_EN,
   THAI_MONTHS,
@@ -39,6 +43,8 @@ export interface FilterBarProps {
   onClear: () => void
   showZone?: boolean
   zoneMode?: boolean
+  /** The filters actually in force. Drives the pending notice + "กำลังแสดง" summary (UX-04). */
+  applied?: Filters
 }
 
 /** Buddhist 'YYYY-MM' -> Gregorian 'YYYY-MM' for an <input type="month"> value attribute. */
@@ -72,6 +78,53 @@ function formatBeMonth(be: string): string {
   return `${name} ${m[1]}`
 }
 
+/** Compact Buddhist month for the applied-scope summary ('ต.ค. 2568'). '' when unparseable. */
+function formatBeMonthShort(be: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(be.trim())
+  if (!m) return ''
+  const abbr = MONTH_ABBR[parseInt(m[2], 10) - 1]
+  return abbr ? `${abbr} ${m[1]}` : ''
+}
+
+function describeMonthRange(f: Filters): string {
+  const from = formatBeMonthShort(f.fromMonth)
+  const to = formatBeMonthShort(f.toMonth)
+  if (!from && !to) return 'ทุกช่วงเวลา'
+  if (from && !to) return `ตั้งแต่ ${from}`
+  if (!from && to) return `ถึง ${to}`
+  return from === to ? from : `${from} – ${to}`
+}
+
+function describeHazardType(key: string): string {
+  if (key === 'all' || key === '') return 'ทุกประเภทภัย'
+  if (key === 'social') return 'Social Listening'
+  if (key === 'hazards') return 'ภัยอื่นๆ (รวม)'
+  return HAZARD_TYPES.find((h) => h.key === key)?.label ?? 'ทุกประเภทภัย'
+}
+
+/**
+ * UX-04(b): the always-visible sentence describing what the charts below are actually showing,
+ * derived from the APPLIED filters only — never from the draft the user is still editing.
+ */
+function describeApplied(f: Filters): string {
+  return [
+    describeMonthRange(f),
+    f.zone === 'all' ? 'ทุกเขต' : `เขตสุขภาพที่ ${f.zone}`,
+    f.province === '' ? 'ทั้งประเทศ' : f.province,
+    describeHazardType(f.hazardType),
+  ].join(' · ')
+}
+
+function sameFilters(a: Filters, b: Filters): boolean {
+  return (
+    a.fromMonth === b.fromMonth &&
+    a.toMonth === b.toMonth &&
+    a.zone === b.zone &&
+    a.province === b.province &&
+    a.hazardType === b.hazardType
+  )
+}
+
 const ZONE_NUMBERS = Array.from({ length: 13 }, (_, i) => i + 1)
 
 const inputCls =
@@ -96,8 +149,10 @@ export default function FilterBar({
   onClear,
   showZone = true,
   zoneMode = false,
+  applied,
 }: FilterBarProps) {
   const [local, setLocal] = useState<Filters>(value)
+  const barRef = useRef<HTMLDivElement | null>(null)
 
   // Re-sync from the parent's draft on every change that originates OUTSIDE this component.
   // Our own edits never round-trip through `value` mid-typing, so this never clobbers the user.
@@ -116,8 +171,38 @@ export default function FilterBar({
     setLocal({ ...local, zone, province })
   }
 
-  const accentBtn = zoneMode ? 'bg-s2-600 hover:bg-s2-700' : 'bg-s1-600 hover:bg-s1-700'
+  // UX-05: white on #EA580C (s1-600) measured 3.56:1. s1-700 (#C2410C) is ≈5.18:1.
+  const accentBtn = zoneMode ? 'bg-s2-600 hover:bg-s2-700' : 'bg-s1-700 hover:bg-s1-800'
   const accentColor = zoneMode ? 's2' : 's1'
+
+  const appliedScope = applied ? describeApplied(applied) : null
+  const pending = applied ? !sameFilters(local, applied) : false
+
+  // UX-06: publish the real height of the sticky stack (header + this bar) so section jumps —
+  // and CSS scroll-padding-top in index.css — land below it instead of under it. The bar is only
+  // sticky from md up (see the className comment below); below that the header alone is fixed.
+  useEffect(() => {
+    const root = document.documentElement
+    const el = barRef.current
+    const mq = window.matchMedia('(min-width: 768px)')
+
+    const publish = () => {
+      const barHeight = mq.matches && el ? el.getBoundingClientRect().height : 0
+      root.style.setProperty('--sticky-offset', `${Math.round(HEADER_HEIGHT_PX + barHeight)}px`)
+    }
+
+    publish()
+    const ro = el ? new ResizeObserver(publish) : null
+    if (el && ro) ro.observe(el)
+    mq.addEventListener('change', publish)
+
+    return () => {
+      ro?.disconnect()
+      mq.removeEventListener('change', publish)
+      // Pages without a filter bar still have the sticky header.
+      root.style.setProperty('--sticky-offset', `${HEADER_HEIGHT_PX}px`)
+    }
+  }, [])
 
   // Options for Health Zone (supports both Thai and English search)
   const zoneOptions = useMemo(
@@ -209,6 +294,7 @@ export default function FilterBar({
 
   return (
     <div
+      ref={barRef}
       // SPEC 5.2 says this bar is sticky, and it is — from md up, where it is at most two rows
       // (measured 215px at 768, 139px at 1280, i.e. 26-37% of the viewport under the 72px header).
       // Below md it stacks to one field per row and pinning it is not viable: measured 569px tall
@@ -302,23 +388,49 @@ export default function FilterBar({
             />
           </div>
 
-          {/* Buttons: คัดกรอง & ล้าง */}
+          {/* Buttons: ใช้ตัวกรอง & ล้างตัวกรองทั้งหมด */}
           <div className="flex gap-2 sm:col-span-2 md:col-span-1 xl:col-span-1">
             <button
               type="button"
               onClick={() => onApply(local)}
-              className={`flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors cursor-pointer ${accentBtn}`}
+              aria-label="ใช้ตัวกรองที่เลือก"
+              className={`flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-700 ${accentBtn} ${
+                pending ? 'ring-2 ring-offset-2 ring-amber-500' : ''
+              }`}
             >
-              <FilterIcon size={16} /> คัดกรอง
+              <FilterIcon size={16} aria-hidden="true" /> ใช้ตัวกรอง
             </button>
             <button
               type="button"
               onClick={onClear}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-700 shadow-sm transition-colors cursor-pointer"
+              aria-label="ล้างตัวกรองทั้งหมด"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 shadow-sm transition-colors cursor-pointer whitespace-nowrap"
             >
-              <ClearIcon size={16} /> ล้าง
+              <ClearIcon size={16} aria-hidden="true" /> ล้างตัวกรองทั้งหมด
             </button>
           </div>
+        </div>
+
+        {/* UX-04: what is pending vs. what is actually on screen. The live region is always in
+            the DOM so screen readers announce the notice when it appears. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div role="status" aria-live="polite">
+            {pending && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400 bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-900">
+                <AlertTriangle size={14} aria-hidden="true" />
+                มีตัวกรองที่ยังไม่ได้ใช้
+              </span>
+            )}
+          </div>
+          {appliedScope && (
+            <p className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+              <Eye size={14} className="text-slate-500" aria-hidden="true" />
+              <span>
+                <span className="font-semibold text-slate-700">กำลังแสดง: </span>
+                {appliedScope}
+              </span>
+            </p>
+          )}
         </div>
       </div>
     </div>

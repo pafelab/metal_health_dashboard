@@ -4,11 +4,25 @@
 // (Sarabun, 14px labels, generous padding, wrap long Thai names) are enforced centrally here.
 
 import type { EChartsOption } from 'echarts'
-import type { CategoryCount, ChartType } from '@/types'
+import type { ChartType } from '@/types'
 import { PALETTE } from '@/config'
 
 export const FONT = 'Poppins, Prompt, sans-serif'
 export const LABEL_SIZE = 14
+
+/** Above this many slices a pie/donut/rose can no longer fit "name + count + percent" on the
+ *  plot without the labels colliding, so the percent moves to the tooltip and the data table
+ *  (audit UX-13: "move secondary percentage labels into accessible details when labels crowd"). */
+const CROWDED_SLICE_COUNT = 6
+
+/** True when the visitor asked the OS for reduced motion — charts then render without animation. */
+export function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
 
 /** Formats "123 (45.6%)" — SPEC 4.5 / SPEC 7. Guards against a zero denominator. */
 export function formatCountPercent(value: number, total: number): string {
@@ -53,8 +67,21 @@ export function wrapThaiLabel(name: string, maxCharsPerLine = 12): string {
   return chunks.join('\n')
 }
 
-function sumValues(data: CategoryCount[]): number {
-  return data.reduce((acc, d) => acc + (Number.isFinite(d.value) ? d.value : 0), 0)
+/**
+ * One plotted datum. `value: null` means "not reported" — echarts leaves a break in the line
+ * instead of drawing a point, which is how UX-02 asks missing months to differ from real zeros.
+ * CategoryCount[] is assignable to ChartDatum[], so existing callers are unaffected.
+ */
+export interface ChartDatum {
+  name: string
+  value: number | null
+}
+
+/** '—' in a tooltip/table: the month exists on the axis but carries no report at all (UX-02). */
+export const NO_DATA_TEXT = 'ไม่มีรายงาน'
+
+function sumValues(data: ChartDatum[]): number {
+  return data.reduce((acc, d) => acc + (typeof d.value === 'number' && Number.isFinite(d.value) ? d.value : 0), 0)
 }
 
 const baseTextStyle = { fontFamily: FONT, fontSize: LABEL_SIZE }
@@ -65,7 +92,7 @@ const baseTooltip: EChartsOption['tooltip'] = {
 }
 
 export interface ChartOptionParams {
-  data: CategoryCount[]
+  data: ChartDatum[]
   seriesName?: string
   valueSuffix?: string
   total?: number
@@ -173,11 +200,14 @@ function buildAxisOption(
 
   return {
     textStyle: baseTextStyle,
+    animation: !prefersReducedMotion(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tooltip: { ...baseTooltip, trigger: 'axis', formatter: (p: any) => {
       const item = Array.isArray(p) ? p[0] : p
       const idx = item?.dataIndex ?? 0
-      return `${names[idx]}<br/>${labelFmt({ value: values[idx] })}`
+      const v = values[idx]
+      // A null datum is a month with no report at all — never present it as "0 (0.0%)".
+      return `${names[idx]}<br/>${v == null ? NO_DATA_TEXT : labelFmt({ value: v })}`
     } },
     grid: isHorizontal
       ? { left: 16, right: 90, top: 24, bottom: 16, containLabel: true }
@@ -216,9 +246,17 @@ function buildPieFamilyOption(
   const denom = total ?? sumValues(data)
   const labelFmt = labelFormatterFor(denom, valueSuffix)
   const palette = colors ?? PALETTE.categorical
+  const crowded = data.length > CROWDED_SLICE_COUNT
+  // Crowded plot: keep the count on the slice, drop the percent (still in tooltip + table).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sliceLabel = (p: any): string =>
+    crowded
+      ? `${p.name}\n${(typeof p.value === 'number' ? p.value : 0).toLocaleString('en-US')}${valueSuffix}`
+      : `${p.name}\n${labelFmt({ value: p.value })}`
 
   return {
     textStyle: baseTextStyle,
+    animation: !prefersReducedMotion(),
     color: palette,
     tooltip: { ...baseTooltip, trigger: 'item', formatter: (p: any) => `${p.name}<br/>${labelFmt({ value: p.value })}` },
     legend: {
@@ -237,13 +275,14 @@ function buildPieFamilyOption(
         itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 },
         data: data.map((d, i) => ({
           name: d.name,
-          value: d.value,
+          value: d.value ?? 0,
           itemStyle: { color: sliceGradient(palette[i % palette.length]) },
         })),
         label: {
           fontFamily: FONT,
           fontSize: LABEL_SIZE,
-          formatter: (p: any) => `${p.name}\n${labelFmt({ value: p.value })}`,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter: (p: any) => sliceLabel(p),
         },
         labelLine: { length: 10, length2: 10 },
       },
@@ -257,6 +296,7 @@ function buildTreemapOption({ data, total, valueSuffix = '', colors }: ChartOpti
   const palette = colors ?? PALETTE.categorical
   return {
     textStyle: baseTextStyle,
+    animation: !prefersReducedMotion(),
     color: palette,
     tooltip: { ...baseTooltip, formatter: (p: any) => `${p.name}<br/>${labelFmt({ value: p.value })}` },
     series: [
@@ -274,7 +314,7 @@ function buildTreemapOption({ data, total, valueSuffix = '', colors }: ChartOpti
           color: '#1E293B',
           formatter: (p: any) => `${p.name}\n${labelFmt({ value: p.value })}`,
         },
-        data: data.map((d) => ({ name: d.name, value: d.value })),
+        data: data.map((d) => ({ name: d.name, value: d.value ?? 0 })),
       },
     ],
   }
@@ -286,6 +326,7 @@ function buildFunnelOption({ data, total, valueSuffix = '', colors }: ChartOptio
   const palette = colors ?? PALETTE.categorical
   return {
     textStyle: baseTextStyle,
+    animation: !prefersReducedMotion(),
     color: palette,
     tooltip: { ...baseTooltip, trigger: 'item', formatter: (p: any) => `${p.name}<br/>${labelFmt({ value: p.value })}` },
     series: [
@@ -306,7 +347,7 @@ function buildFunnelOption({ data, total, valueSuffix = '', colors }: ChartOptio
           fontSize: LABEL_SIZE,
           formatter: (p: any) => `${p.name}  ${labelFmt({ value: p.value })}`,
         },
-        data: data.map((d) => ({ name: d.name, value: d.value })),
+        data: data.map((d) => ({ name: d.name, value: d.value ?? 0 })),
       },
     ],
   }
@@ -416,6 +457,7 @@ export function buildMultiSeriesOption(
 
   return {
     textStyle: baseTextStyle,
+    animation: !prefersReducedMotion(),
     color: palette,
     tooltip: {
       ...baseTooltip,

@@ -26,10 +26,18 @@ function makeDefaults(initial: Partial<Filters>): Filters {
 export interface UseFiltersResult {
   draft: Filters
   applied: Filters
+  /** This tab's OWN default filters (Dashboard: zone 'all'; zone tab: zone 1). Captured once on
+   *  mount. Exposed so the URL sync can diff/seed against the page's defaults rather than a
+   *  module-level guess — UX-04. */
+  defaults: Filters
   setDraft: (f: Filters) => void
   apply: () => void
   clear: () => void
   setProvinceAndApply: (p: string) => void
+  /** Set draft AND applied in one go (used to restore a shared URL — UX-04). */
+  setApplied: (f: Filters) => void
+  /** Clear only the province ('' = ทั้งประเทศ) and apply — UX-04(d). */
+  clearProvince: () => void
 }
 
 export function useFilters(initial: Partial<Filters>): UseFiltersResult {
@@ -80,5 +88,34 @@ export function useFilters(initial: Partial<Filters>): UseFiltersResult {
     setAppliedState(next)
   }, [])
 
-  return { draft, applied, setDraft, apply, clear, setProvinceAndApply }
+  // Restore a shared '#/dashboard?...' URL (UX-04): draft and applied must land together, or the
+  // bar would show a pending change the user never made.
+  const setApplied = useCallback((f: Filters) => {
+    const next = { ...f }
+    draftRef.current = next
+    setDraftState(next)
+    setAppliedState(next)
+  }, [])
+
+  // "ดูทั้งประเทศ" / clearing a map selection. Filters.province '' means ALL provinces; passing
+  // 'all' here would be read as a province literally named 'all' and applyFilters would drop
+  // every row (UX-04 fix (d)).
+  const clearProvince = useCallback(() => {
+    const next: Filters = { ...draftRef.current, province: '' }
+    draftRef.current = next
+    setDraftState(next)
+    setAppliedState(next)
+  }, [])
+
+  return {
+    draft,
+    applied,
+    defaults: defaultsRef.current,
+    setDraft,
+    apply,
+    clear,
+    setProvinceAndApply,
+    setApplied,
+    clearProvince,
+  }
 }

@@ -203,3 +203,24 @@ export function splitLines(raw: string): string[] {
     .map((s) => s.trim())
     .filter((s) => s !== '')
 }
+
+/**
+ * Placeholder spellings seen in the source sheet's ลิงก์ column. They are *not* addresses, so
+ * rendering them as anchors sends users to a relative route (audit UX-07: an href of '-').
+ */
+const URL_PLACEHOLDERS = new Set(['-', '—', '–', 'ไม่มี', 'ไม่มีข้อมูล', 'n/a', 'na', 'null', 'undefined'])
+
+/**
+ * True only for a usable news-source address: parses as an absolute URL over http/https and has
+ * a host. Blank cells, whitespace and the placeholder spellings above are all false. Audit UX-07.
+ */
+export function isValidHttpUrl(value: string): boolean {
+  const t = (value ?? '').trim()
+  if (t === '' || URL_PLACEHOLDERS.has(t.toLowerCase())) return false
+  try {
+    const u = new URL(t)
+    return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== ''
+  } catch {
+    return false
+  }
+}

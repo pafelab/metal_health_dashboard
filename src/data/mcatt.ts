@@ -22,6 +22,49 @@ function pick(values: string[], i: number): string {
   return values[i] ?? values[0] ?? ''
 }
 
+/** Characters a phone-number cell may contain. Anything else (letters, Thai, 'ต่อ') disqualifies
+ *  it — UX-17 only allows a tel: link where the channel is verified. */
+const PHONE_CHARS = /^[0-9+\-().\s]+$/
+
+/**
+ * Digits of a Thai phone number, or null when the value is not a single valid one.
+ * Accepts the +66 international form and returns it in national 0-leading form.
+ * Valid lengths: 10 (mobile) and 9 (landline).
+ */
+export function thaiPhoneDigits(raw: string): string | null {
+  const t = raw.trim()
+  if (t === '' || !PHONE_CHARS.test(t)) return null
+  let digits = t.replace(/\D/g, '')
+  if (!digits.startsWith('0') && digits.startsWith('66')) digits = `0${digits.slice(2)}`
+  if (!digits.startsWith('0')) return null
+  return digits.length === 10 || digits.length === 9 ? digits : null
+}
+
+/**
+ * Display grouping: 10-digit mobile 0XX-XXX-XXXX; 9-digit landline 0X-XXX-XXXX for the two-digit
+ * Bangkok code (02-590-8000) and 0XX-XXX-XXX for the three-digit provincial codes (043-123-456),
+ * which is how those numbers are written in Thailand.
+ * Values that are not a valid Thai number are returned trimmed but otherwise untouched.
+ */
+export function formatThaiPhone(raw: string): string {
+  const digits = thaiPhoneDigits(raw)
+  if (digits === null) return raw.trim()
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
+  }
+  if (digits.startsWith('02')) {
+    return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`
+  }
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
+/** A single sheet cell sometimes carries two numbers ('081-2345678 / 042-123456'). */
+export function formatPhoneCell(raw: string): string {
+  const parts = raw.split(/\s*[,/]\s*/).filter((p) => p.trim() !== '')
+  if (parts.length <= 1) return formatThaiPhone(raw)
+  return parts.map(formatThaiPhone).join(' / ')
+}
+
 /** Skips rows[0] (header). Zone is carried forward from col 64 until a new zone appears;
  *  people found before the first zone cell are dropped (McattPerson.zone is non-nullable). */
 export function parseMcatt(rows: string[][]): McattPerson[] {
@@ -59,7 +102,8 @@ export function parseMcatt(rows: string[][]): McattPerson[] {
       people.push({
         zone: currentZone as number,
         name,
-        phone: pick(phones, i2),
+        // Display form is normalised once, here, so every consumer shows the same grouping (UX-17).
+        phone: formatPhoneCell(pick(phones, i2)),
         agency: pick(agencies, i2),
         lineId: pick(lineIds, i2),
         lineName: pick(lineNames, i2),

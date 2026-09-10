@@ -1,7 +1,7 @@
 // Pure aggregators over already-parsed SLEvent[] / HazardEvent[] rows. No echarts types here —
 // chart option builders (src/components/charts/*) consume this plain data. SPEC 4.4-4.6, 6.1-6.2.
 
-import type { CategoryCount, SeriesPoint, GenderSplit, SLEvent, HazardEvent, Severity } from '@/types'
+import type { CategoryCount, GenderSplit, SLEvent, HazardEvent, Severity } from '@/types'
 import {
   ALL_PROVINCES,
   AGE_BANDS,
@@ -12,7 +12,10 @@ import {
   HAZARD_UNSPECIFIED_LABEL,
   THAI_MONTHS,
 } from '@/config'
-import { collapseWs } from './normalize'
+import { collapseWs, monthLabel } from './normalize'
+
+/** Minimal shape the month-coverage helpers need — satisfied by both SLEvent and HazardEvent. */
+type DatedRow = { month: number | null; year: number | null; sortKey: number }
 
 /**
  * Count rows by a category value. Blank and '-' cells are dropped (SPEC 4.5).
@@ -84,19 +87,95 @@ export function psychiatricDiagnosisCounts(rows: SLEvent[]): CategoryCount[] {
   return countBy(filtered, (r) => r.diagnosis, CATEGORY_ORDERS.diagnosis)
 }
 
-/** Monthly trend, every month present in the data, sorted chronologically. SPEC 4.1. Rows with
- *  an unresolved month/year (sortKey 0) are excluded — they cannot be placed on the timeline. */
-export function monthlyTrend(rows: { sortKey: number; monthLabel: string }[]): SeriesPoint[] {
+/** Longest gap-filled axis monthlyTrend() will build. One mistyped year (BUILD_NOTES documents
+ *  such rows) must not be able to expand the trend axis to thousands of empty categories. */
+const MAX_TREND_MONTHS = 240
+
+/** month/year back out of a sortKey (= year * 12 + month), as the 'ต.ค. 68' trend label. */
+function labelOfSortKey(sortKey: number): string {
+  const month = ((sortKey - 1) % 12) + 1
+  const year = Math.floor((sortKey - 1) / 12)
+  return monthLabel(month, year)
+}
+
+/**
+ * One month on the trend axis. `value` is null — and `missing` true — when the month was never
+ * reported at all, which UX-02 (fix item 4) requires to be visibly different from a confirmed
+ * zero: a chart must break there rather than plot a fabricated 0.
+ */
+export interface TrendPoint {
+  label: string // e.g. 'ต.ค. 68'
+  value: number | null
+  sortKey: number
+  missing: boolean
+}
+
+export interface MonthlyTrendOptions {
+  /** Clip the axis to a validated coverage window (see coverageWindow()), inclusive. */
+  fromKey?: number
+  toKey?: number
+  /**
+   * Month keys the WHOLE dataset reported (reportedMonthKeys() over the unfiltered rows). A month
+   * inside the window that is absent here has not been reported → null/missing; a month present
+   * here with no row in `rows` is a real zero for the current filter scope → 0.
+   * Omitted: every gap is treated as a zero, the pre-UX-02 behaviour.
+   */
+  reportedKeys?: Set<number>
+}
+
+/**
+ * Monthly trend as a CONTINUOUS month sequence (UX-02: plotted months must be adjacent in
+ * calendar time — the old sparse axis put ธ.ค. 69 right next to มิ.ย. 69 and made unrelated
+ * months look consecutive). The span is the coverage window when one is given, otherwise the
+ * earliest..latest month present in `rows`; rows outside the window are clipped so the chart can
+ * never contradict the coverage label printed above it. Months are labelled in the same
+ * 'ต.ค. 68' form as the rows' own monthLabel. Rows with an unresolved month/year (sortKey 0) stay
+ * excluded — they cannot be placed on the timeline. SPEC 4.1.
+ */
+export function monthlyTrend(
+  rows: { sortKey: number; monthLabel: string }[],
+  options: MonthlyTrendOptions = {},
+): TrendPoint[] {
+  const { fromKey, toKey, reportedKeys } = options
   const byKey = new Map<number, { label: string; value: number }>()
   for (const row of rows) {
     if (row.sortKey <= 0) continue
+    if (fromKey !== undefined && row.sortKey < fromKey) continue
+    if (toKey !== undefined && row.sortKey > toKey) continue
     const existing = byKey.get(row.sortKey)
     if (existing) existing.value++
     else byKey.set(row.sortKey, { label: row.monthLabel, value: 1 })
   }
-  return Array.from(byKey.entries())
-    .map(([sortKey, v]) => ({ label: v.label, value: v.value, sortKey }))
-    .sort((a, b) => a.sortKey - b.sortKey)
+
+  const keys = Array.from(byKey.keys()).sort((a, b) => a - b)
+  const first = fromKey ?? keys[0]
+  const last = toKey ?? keys[keys.length - 1]
+  if (first === undefined || last === undefined || last < first) return []
+
+  if (last - first + 1 > MAX_TREND_MONTHS) {
+    // Implausible span (a bad year cell): fall back to plotting only the months that have rows.
+    return keys.map((sortKey) => {
+      const hit = byKey.get(sortKey)!
+      return { label: hit.label || labelOfSortKey(sortKey), value: hit.value, sortKey, missing: false }
+    })
+  }
+
+  const points: TrendPoint[] = []
+  for (let sortKey = first; sortKey <= last; sortKey++) {
+    const hit = byKey.get(sortKey)
+    if (hit) {
+      points.push({ label: hit.label || labelOfSortKey(sortKey), value: hit.value, sortKey, missing: false })
+      continue
+    }
+    const reported = reportedKeys ? reportedKeys.has(sortKey) : true
+    points.push({
+      label: labelOfSortKey(sortKey),
+      value: reported ? 0 : null,
+      sortKey,
+      missing: !reported,
+    })
+  }
+  return points
 }
 
 /** Counts by province, all 77 provinces in zone order (0-filled) so a density map always has
@@ -296,17 +375,140 @@ export function hazardTypeCounts(rows: HazardEvent[]): CategoryCount[] {
  * errors that date rows into the future; those must not be reported as "latest"). Self-updating
  * as the sheet grows — never hardcode the resulting string. Returns '' when nothing qualifies.
  */
-export function latestDataMonth(rows: SLEvent[], now: Date = new Date()): string {
-  const nowYear = now.getFullYear() + 543
-  const nowKey = nowYear * 12 + (now.getMonth() + 1)
+export function latestDataMonth(rows: DatedRow[], now: Date = new Date()): string {
+  return boundaryDataMonth(rows, 'latest', now)
+}
 
+/**
+ * Mirror of latestDataMonth() for the OTHER end of the coverage window, e.g. 'ตุลาคม 2568'.
+ * UX-02 asks the section to state what the data actually covers ('ครอบคลุม <first> – <latest>'),
+ * which needs both boundaries. Same exclusions: unresolved and future-dated rows don't count.
+ */
+export function earliestDataMonth(rows: DatedRow[], now: Date = new Date()): string {
+  return boundaryDataMonth(rows, 'earliest', now)
+}
+
+/** The current month as a sortKey (BE year * 12 + month) — the cut-off for "in the future". */
+function currentMonthKey(now: Date): number {
+  return (now.getFullYear() + 543) * 12 + (now.getMonth() + 1)
+}
+
+function boundaryDataMonth(rows: DatedRow[], which: 'earliest' | 'latest', now: Date): string {
+  const nowKey = currentMonthKey(now)
   let best: { sortKey: number; month: number; year: number } | null = null
   for (const row of rows) {
     if (row.month === null || row.year === null) continue
     if (row.sortKey <= 0 || row.sortKey > nowKey) continue
-    if (!best || row.sortKey > best.sortKey) best = { sortKey: row.sortKey, month: row.month, year: row.year }
+    const better = !best || (which === 'latest' ? row.sortKey > best.sortKey : row.sortKey < best.sortKey)
+    if (better) best = { sortKey: row.sortKey, month: row.month, year: row.year }
   }
-
   if (!best) return ''
   return `${THAI_MONTHS[best.month - 1]} ${best.year}`
+}
+
+/**
+ * Rows dated AFTER the current calendar month — data-entry errors (BUILD_NOTES: the sheet has
+ * rows typed into the future). They are never reported as the latest data month, but they do
+ * still reach the event table, so the UI can surface how many there are for review (UX-02).
+ */
+export function futureDatedRows<T extends { sortKey: number }>(rows: T[], now: Date = new Date()): T[] {
+  const nowKey = currentMonthKey(now)
+  return rows.filter((row) => row.sortKey > nowKey)
+}
+
+/** Every month (as a sortKey) the dataset actually reported, future-dated rows excluded. */
+export function reportedMonthKeys(rows: DatedRow[], now: Date = new Date()): Set<number> {
+  const nowKey = currentMonthKey(now)
+  const keys = new Set<number>()
+  for (const row of rows) {
+    if (row.sortKey <= 0 || row.sortKey > nowKey) continue
+    keys.add(row.sortKey)
+  }
+  return keys
+}
+
+/** First/last month of the validated reporting period, both as sortKeys and as 'ตุลาคม 2568'. */
+export interface CoverageWindow {
+  firstKey: number
+  lastKey: number
+  firstLabel: string
+  lastLabel: string
+}
+
+/** The `firstKey`/`lastKey` pair the out-of-period helpers need. */
+export type PeriodBounds = Pick<CoverageWindow, 'firstKey' | 'lastKey'>
+
+/**
+ * How many CONSECUTIVE empty months end the reporting period when walking backwards from the
+ * newest reported month. One empty month inside an otherwise continuous run is a genuine zero;
+ * a longer hole means reporting had not started yet (BUILD_NOTES: ชีต2's ม.ค. 2568 rows are a
+ * data-entry error separated from the real run ต.ค. 2568 – มิ.ย. 2569 by 8 empty months).
+ */
+const REPORTING_GAP_TOLERANCE = 2
+
+/** Full-month label ('ตุลาคม 2568') for a sortKey, matching latestDataMonth()'s wording. */
+function fullLabelOfSortKey(sortKey: number): string {
+  const month = ((sortKey - 1) % 12) + 1
+  const year = Math.floor((sortKey - 1) / 12)
+  return `${THAI_MONTHS[month - 1]} ${year}`
+}
+
+/**
+ * The period the data really covers (UX-02): it ends at latestDataMonth() and starts at the
+ * beginning of the contiguous reported run leading up to it, so a stray out-of-period row cannot
+ * stretch the advertised coverage over months that contain nothing. Rows outside the window are
+ * what outOfPeriodRows() flags for review. Returns null when nothing qualifies.
+ */
+export function coverageWindow(rows: DatedRow[], now: Date = new Date()): CoverageWindow | null {
+  const keys = reportedMonthKeys(rows, now)
+  if (keys.size === 0) return null
+
+  const sorted = Array.from(keys).sort((a, b) => a - b)
+  const lastKey = sorted[sorted.length - 1]
+  const earliestKey = sorted[0]
+
+  let firstKey = lastKey
+  let gap = 0
+  for (let key = lastKey - 1; key >= earliestKey; key--) {
+    if (keys.has(key)) {
+      firstKey = key
+      gap = 0
+      continue
+    }
+    gap++
+    if (gap >= REPORTING_GAP_TOLERANCE) break
+  }
+
+  return {
+    firstKey,
+    lastKey,
+    firstLabel: fullLabelOfSortKey(firstKey),
+    lastLabel: fullLabelOfSortKey(lastKey),
+  }
+}
+
+/** True when a row's month falls outside the validated coverage window (either end). */
+export function isOutOfPeriod(sortKey: number, bounds: PeriodBounds | null | undefined): boolean {
+  if (!bounds || sortKey <= 0) return false
+  return sortKey < bounds.firstKey || sortKey > bounds.lastKey
+}
+
+/**
+ * Rows dated outside the validated reporting period, split by which end they fall off (UX-02
+ * fix item 5). `after` is the future-dated data-entry errors futureDatedRows() also finds;
+ * `before` is the equally suspect too-early ones, which nothing flagged until now.
+ */
+export function outOfPeriodRows<T extends { sortKey: number }>(
+  rows: T[],
+  bounds: PeriodBounds | null | undefined,
+): { before: T[]; after: T[] } {
+  const before: T[] = []
+  const after: T[] = []
+  if (!bounds) return { before, after }
+  for (const row of rows) {
+    if (row.sortKey <= 0) continue
+    if (row.sortKey < bounds.firstKey) before.push(row)
+    else if (row.sortKey > bounds.lastKey) after.push(row)
+  }
+  return { before, after }
 }

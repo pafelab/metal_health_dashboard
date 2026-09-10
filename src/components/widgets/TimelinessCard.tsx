@@ -2,10 +2,16 @@
 // Percent to two decimals, level, the lucide face icon + colour from TIMELINESS_LEVELS,
 // the '(ดำเนินการทันเวลา {pass} จากรวมทั้งหมด {total} เหตุการณ์)' line, 'ไม่มีข้อมูล' when
 // total = 0, plus a small legend table of the six SPEC 6.4 criteria rows.
+//
+// UX-11: 'ระดับ 0.5' is a score on the SPEC 6.4 scale, not a percentage, and its denominator is
+// only the events that carry reporting data (Social Listening + ภัยอื่นๆ combined) — which is why
+// it can quote more events than a single section below it. Both facts are stated on the card, and
+// the scale bounds are derived from TIMELINESS_LEVELS so they cannot drift from the config.
 
 import * as LucideIcons from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Card from '@/components/layout/Card'
+import DenominatorNote from '@/components/widgets/DenominatorNote'
 import type { TimelinessResult } from '@/types'
 import { TIMELINESS_LEVELS } from '@/config'
 import type { TimelinessLevelDef } from '@/config'
@@ -30,6 +36,10 @@ function rangeLabel(levels: TimelinessLevelDef[], i: number): string {
   return `${cur.min.toFixed(2)} – ${(levels[i - 1].min - 0.01).toFixed(2)}`
 }
 
+/** Bounds of the score scale, taken from the config rows (highest threshold first). */
+const SCALE_MIN = TIMELINESS_LEVELS[TIMELINESS_LEVELS.length - 1].level
+const SCALE_MAX = TIMELINESS_LEVELS[0].level
+
 export default function TimelinessCard({ result }: TimelinessCardProps) {
   const { pass, total, percent, level, color, icon } = result
   const Icon = iconFor(icon)
@@ -46,27 +56,43 @@ export default function TimelinessCard({ result }: TimelinessCardProps) {
         </div>
         <div className="flex-1">
           <div className="text-kpi font-extrabold leading-none" style={{ color }}>
-            {hasData ? `${percent.toFixed(2)}%` : 'ไม่มีข้อมูล'}
+            {hasData ? `${percent.toFixed(2)}%` : '—'}
           </div>
-          {hasData && (
-            <div className="mt-1 text-cardTitle font-semibold text-slate-600">
-              ระดับ {level}
-            </div>
-          )}
-          {hasData && (
-            <div className="mt-1 text-body text-slate-500">
-              (ดำเนินการทันเวลา {pass} จากรวมทั้งหมด {total} เหตุการณ์)
-            </div>
+          <div className="mt-1 text-body text-slate-600">ร้อยละของเหตุการณ์ที่ส่งรายงานทันเวลา</div>
+          {hasData ? (
+            <>
+              <div className="mt-2 text-cardTitle font-semibold text-slate-600">
+                ระดับ {level}
+                <span className="ml-2 align-middle text-sm font-medium text-slate-600">
+                  (คะแนนระดับ {SCALE_MIN}–{SCALE_MAX} ไม่ใช่ร้อยละ)
+                </span>
+              </div>
+              <div className="mt-1 text-body text-slate-600">
+                (ดำเนินการทันเวลา {pass} จากรวมทั้งหมด {total} เหตุการณ์)
+              </div>
+            </>
+          ) : (
+            <div className="mt-2 text-body font-semibold text-slate-600">ไม่มีข้อมูลการส่งรายงานในขอบเขตนี้</div>
           )}
         </div>
       </div>
 
+      {hasData && (
+        <DenominatorNote className="mt-3 text-left">
+          คำนวณจากเหตุการณ์ที่มีข้อมูลการส่งรายงาน {total} เหตุการณ์ (Social Listening + ภัยอื่นๆ ตามตัวกรองที่ใช้)
+          จำนวนนี้จึงต่างจากจำนวนเหตุการณ์ของแต่ละส่วนด้านล่างได้
+        </DenominatorNote>
+      )}
+
       <div className="mt-6 overflow-x-auto">
         <table className="w-full min-w-[420px] text-tableText">
+          <caption className="mb-2 text-left text-sm font-medium text-slate-600">
+            เกณฑ์แปลงร้อยละเป็นคะแนนระดับ ({SCALE_MIN}–{SCALE_MAX})
+          </caption>
           <thead>
-            <tr className="border-b border-slate-100 text-left text-slate-500">
-              <th className="py-2 pr-4 font-medium">ร้อยละ</th>
-              <th className="py-2 pr-4 font-medium">ระดับ</th>
+            <tr className="border-b border-slate-100 text-left text-slate-600">
+              <th className="py-2 pr-4 font-medium">ร้อยละที่ทันเวลา</th>
+              <th className="py-2 pr-4 font-medium">คะแนนระดับ</th>
               <th className="py-2 pr-4 font-medium">สี</th>
               <th className="py-2 font-medium">สัญลักษณ์</th>
             </tr>
@@ -78,15 +104,19 @@ export default function TimelinessCard({ result }: TimelinessCardProps) {
               return (
                 <tr
                   key={l.level}
-                  className={`border-b border-slate-50 last:border-0 ${active ? 'bg-slate-50' : ''}`}
+                  className={`border-b border-slate-50 last:border-0 ${active ? 'bg-slate-50 font-semibold' : ''}`}
                 >
-                  <td className="py-2 pr-4 whitespace-nowrap">{rangeLabel(TIMELINESS_LEVELS, i)}</td>
+                  <td className="py-2 pr-4 whitespace-nowrap">
+                    {rangeLabel(TIMELINESS_LEVELS, i)}
+                    {/* Text marker, not colour alone, for the row matching the current score. */}
+                    {active && <span className="ml-2 text-xs font-bold text-s1-700">· ระดับปัจจุบัน</span>}
+                  </td>
                   <td className="py-2 pr-4">{l.level}</td>
                   <td className="py-2 pr-4">
-                    <span className="inline-block h-3 w-3 rounded-full align-middle" style={{ backgroundColor: l.color }} />
+                    <span className="inline-block h-3 w-3 rounded-full align-middle" style={{ backgroundColor: l.color }} aria-hidden="true" />
                   </td>
                   <td className="py-2">
-                    <RowIcon size={18} color={l.color} strokeWidth={1.75} />
+                    <RowIcon size={18} color={l.color} strokeWidth={1.75} aria-hidden="true" />
                   </td>
                 </tr>
               )

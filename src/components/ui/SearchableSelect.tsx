@@ -178,7 +178,7 @@ export default function SearchableSelect({
           disabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'cursor-pointer'
         }`}
       >
-        <span className={`truncate mr-2 ${!selectedOption ? 'text-slate-400' : ''}`}>
+        <span className={`truncate mr-2 ${!selectedOption ? 'text-slate-500' : ''}`}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
         <div className="flex items-center gap-1.5 shrink-0 text-slate-400">
@@ -226,7 +226,7 @@ export default function SearchableSelect({
                 }}
                 onKeyDown={handleSearchKeyDown}
                 placeholder={searchPlaceholder}
-                className={`w-full pl-8 pr-7 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 ${ringColor} transition-all`}
+                className={`w-full pl-8 pr-7 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-500 focus:bg-white focus:outline-none focus:ring-2 ${ringColor} transition-all`}
               />
               {searchQuery && (
                 <button
@@ -278,7 +278,7 @@ export default function SearchableSelect({
                 )
               })
             ) : (
-              <li className="py-6 px-3 text-center text-sm text-slate-400">
+              <li className="py-6 px-3 text-center text-sm text-slate-500">
                 ไม่พบผลการค้นหา "{searchQuery}"
               </li>
             )}

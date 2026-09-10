@@ -21,6 +21,9 @@ textarea {
 @layer base {
   html {
     font-size: 18px;
+    /* UX-06: anchor jumps / focus scrolls stop below the sticky header+filter stack.
+       FilterBar keeps --sticky-offset up to date with a ResizeObserver. */
+    scroll-padding-top: var(--sticky-offset, 96px);
   }
 
   body {
@@ -115,4 +118,26 @@ textarea {
 
 .animate-loading-pulse {
   animation: loading-pulse 1.4s ease-in-out infinite;
+}
+
+/* UX-06 / UI rules: honour the OS "reduce motion" setting — no card fade-in, no infinite
+   loading pulse, no smooth scrolling for section jumps or anchor navigation. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+
+  .animate-card-in,
+  .animate-loading-pulse {
+    animation: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }

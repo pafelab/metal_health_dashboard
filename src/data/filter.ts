@@ -31,7 +31,9 @@ function byZoneAndProvince<T extends { zone: number | null; province: string }>(
 ): T[] {
   return rows.filter((r) => {
     if (f.zone !== 'all' && r.zone !== f.zone) return false
-    if (f.province !== '' && r.province !== f.province) return false
+    // '' is the documented "ทุกจังหวัด" value; 'all' is accepted as a defensive synonym so a
+    // caller that passes the zone-style sentinel cannot silently empty every widget (UX-04).
+    if (f.province !== '' && f.province !== 'all' && r.province !== f.province) return false
     return true
   })
 }

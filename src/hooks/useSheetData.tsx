@@ -3,10 +3,22 @@
 // by all tabs; the reload button refetches both."). The only network I/O is fetchAllData(),
 // re-exported (with the parsers) from '@/data' — this file owns no parsing/normalisation logic
 // of its own.
+//
+// UX-03: the shell must be able to tell "we have never had data" from "we are refreshing data we
+// already show", so consumers get `status` + `hasLoaded` next to the plain `loading` flag. Zero
+// values are only ever real once `hasLoaded` is true.
 
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { SLEvent, HazardEvent, McattPerson } from '@/types'
 import { fetchAllData, parseSheet2, parseWide, parseMcatt } from '@/data'
+
+/**
+ * 'loading'    — a fetch is running and no successful response has ever arrived (show skeletons).
+ * 'refreshing' — a fetch is running on top of data we already display (show a quiet indicator).
+ * 'success'    — idle, with at least one successful parse behind us.
+ * 'error'      — the last fetch failed (before OR after the first success; use `hasLoaded` to tell).
+ */
+export type SheetDataStatus = 'loading' | 'refreshing' | 'success' | 'error'
 
 export interface SheetDataValue {
   sl: SLEvent[]
@@ -16,6 +28,9 @@ export interface SheetDataValue {
   error: string | null
   updatedAt: Date | null
   reload: () => void
+  status: SheetDataStatus
+  /** True from the first successful parse onwards — the guard against rendering fabricated zeros. */
+  hasLoaded: boolean
 }
 
 const SheetDataContext = createContext<SheetDataValue | null>(null)
@@ -30,6 +45,7 @@ export function SheetDataProvider({ children }: { children: React.ReactNode }): 
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const [hasLoaded, setHasLoaded] = useState<boolean>(false)
 
   // Guards against setState after unmount and against two reloads racing each other.
   const mountedRef = useRef(true)
@@ -48,6 +64,7 @@ export function SheetDataProvider({ children }: { children: React.ReactNode }): 
         setHz(parseWide(wide))
         setMcatt(parseMcatt(wide))
         setUpdatedAt(new Date())
+        setHasLoaded(true)
       })
       .catch(() => {
         if (!mountedRef.current) return
@@ -73,7 +90,16 @@ export function SheetDataProvider({ children }: { children: React.ReactNode }): 
     load()
   }, [load])
 
-  const value: SheetDataValue = { sl, hz, mcatt, loading, error, updatedAt, reload }
+  const status: SheetDataStatus = useMemo(() => {
+    if (loading) return hasLoaded ? 'refreshing' : 'loading'
+    if (error) return 'error'
+    return hasLoaded ? 'success' : 'loading'
+  }, [loading, error, hasLoaded])
+
+  const value: SheetDataValue = useMemo(
+    () => ({ sl, hz, mcatt, loading, error, updatedAt, reload, status, hasLoaded }),
+    [sl, hz, mcatt, loading, error, updatedAt, reload, status, hasLoaded],
+  )
 
   return <SheetDataContext.Provider value={value}>{children}</SheetDataContext.Provider>
 }

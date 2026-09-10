@@ -42,11 +42,28 @@ function writeAll(map: StoredMap): void {
 }
 
 /**
- * Per-widget chart type, persisted across reloads. `fallback` is the widget's default type
- * (used on first visit, when storage is empty/corrupt, or after resetChartTypes()).
+ * Resolves what a stored value means for this widget. A persisted type that the widget does not
+ * offer (allowedTypes changed since the choice was made, or storage was hand-edited) must not be
+ * rendered — the widget falls back to its own default instead (audit UX-13).
  */
-export function useChartType(widgetId: string, fallback: ChartType): [ChartType, (t: ChartType) => void] {
-  const [type, setTypeState] = useState<ChartType>(() => readAll()[widgetId] ?? fallback)
+function resolveStored(widgetId: string, fallback: ChartType, allowed?: ChartType[]): ChartType {
+  const stored = readAll()[widgetId]
+  if (!stored) return fallback
+  if (allowed && !allowed.includes(stored)) return fallback
+  return stored
+}
+
+/**
+ * Per-widget chart type, persisted across reloads. `fallback` is the widget's default type
+ * (used on first visit, when storage is empty/corrupt, or after resetChartTypes()). `allowed`,
+ * when given, is the list of types the widget offers; anything else in storage is ignored.
+ */
+export function useChartType(
+  widgetId: string,
+  fallback: ChartType,
+  allowed?: ChartType[],
+): [ChartType, (t: ChartType) => void] {
+  const [type, setTypeState] = useState<ChartType>(() => resolveStored(widgetId, fallback, allowed))
 
   // Keep in sync with a reset triggered elsewhere on the page (or in another mounted instance).
   useEffect(() => {
@@ -61,7 +78,7 @@ export function useChartType(widgetId: string, fallback: ChartType): [ChartType,
 
   // If the widget id itself changes under a mounted instance, re-read for the new id.
   useEffect(() => {
-    setTypeState(readAll()[widgetId] ?? fallback)
+    setTypeState(resolveStored(widgetId, fallback, allowed))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widgetId])
 

@@ -2,10 +2,14 @@
 // renderCustomGender()/renderCustomAge() (person icon + a fluid-fill capsule sized by percent)
 // rebuilt with lucide-react icons and our design tokens. Widget 16 also supplies `ageSplit`
 // (<18 / >=18) which renders as a second figure row inside the same card.
+//
+// UX-11: the two rows have DIFFERENT bases (gender = every row in scope, age = only the rows with
+// a usable age), so each column prints the base it was divided by instead of a bare percent.
 
 import type { LucideIcon } from 'lucide-react'
 import { User, UserRound, Users, Baby, PersonStanding } from 'lucide-react'
 import Card from '@/components/layout/Card'
+import DenominatorNote from '@/components/widgets/DenominatorNote'
 import type { GenderSplit } from '@/types'
 
 export interface GenderFigureProps {
@@ -36,7 +40,7 @@ function FigureColumn({
   Icon,
   label,
   value,
-  percent,
+  total,
   color,
   bg,
   large = false,
@@ -44,11 +48,14 @@ function FigureColumn({
   Icon: LucideIcon
   label: string
   value: number
-  percent: number
+  /** Denominator this column's percent is taken over — printed under it (UX-11). */
+  total: number
   color: string
   bg: string
   large?: boolean
 }) {
+  const percent = pct(value, total)
+  const percentText = total > 0 ? `${percent.toFixed(1)}%` : '—'
   const fillHeight = value === 0 ? 4 : Math.max(16, Math.round(percent))
   return (
     <div className="flex flex-col items-center">
@@ -73,7 +80,15 @@ function FigureColumn({
       <span className={`font-bold text-slate-800 ${large ? 'mt-4 text-base sm:text-lg' : 'mt-3 text-sm'}`}>
         {label}
       </span>
-      <span className={`font-bold text-slate-500 ${large ? 'text-sm' : 'text-xs'}`}>{percent.toFixed(1)}%</span>
+      <span
+        className={`font-bold text-slate-600 ${large ? 'text-sm' : 'text-xs'}`}
+        aria-label={`${label} ${fmt(value)} ราย คิดเป็น ${percentText} ของ ${fmt(total)} ราย`}
+      >
+        {percentText}
+      </span>
+      <span className={`font-medium text-slate-600 ${large ? 'text-xs' : 'text-[11px]'}`} aria-hidden="true">
+        ของ {fmt(total)} ราย
+      </span>
     </div>
   )
 }
@@ -109,13 +124,14 @@ export default function GenderFigure({ title, data, icon, ageSplit }: GenderFigu
             Icon={f.Icon}
             label={f.label}
             value={f.value}
-            percent={pct(f.value, data.total)}
+            total={data.total}
             color={f.color}
             bg={f.bg}
             large={isLarge}
           />
         ))}
       </div>
+      <DenominatorNote className="mt-3 justify-center text-center">ร้อยละของเพศคิดจากทุกเหตุการณ์ในขอบเขตตัวกรอง {fmt(data.total)} ราย (รวมผู้ไม่ระบุเพศไว้ในกลุ่ม “อื่นๆ”)</DenominatorNote>
 
       {ageSplit && ageSplit.length > 0 && (
         <>
@@ -127,12 +143,13 @@ export default function GenderFigure({ title, data, icon, ageSplit }: GenderFigu
                 Icon={ageIcons[i % ageIcons.length]}
                 label={a.label}
                 value={a.value}
-                percent={pct(a.value, ageTotal)}
+                total={ageTotal}
                 color={ageColors[i % ageColors.length].color}
                 bg={ageColors[i % ageColors.length].bg}
               />
             ))}
           </div>
+          <DenominatorNote className="mt-3 justify-center text-center">ร้อยละของช่วงอายุคิดจากผู้ที่ระบุช่วงอายุ {fmt(ageTotal)} ราย</DenominatorNote>
         </>
       )}
     </Card>

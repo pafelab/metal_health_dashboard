@@ -1,4 +1,10 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+// UX-08 — the month picker is a NON-MODAL popover (role="dialog" aria-modal="false"):
+// Escape closes it from the trigger and from every control inside it, focus moves into the panel
+// on open and returns to the trigger on close, Tab/Shift+Tab cycle inside the panel while it is
+// open, arrow keys move between months, selection is exposed with aria-pressed, and the chosen
+// month/year is announced through a polite live region. Public props are unchanged.
+
+import { useState, useRef, useEffect, useMemo, useCallback, useId } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { THAI_MONTHS, MONTH_ABBR } from '@/config'
 
@@ -16,6 +22,14 @@ const ENG_MONTH_ABBR = [
   'Nov',
   'Dec',
 ]
+
+/** Month grid is 3 columns wide, so ArrowUp/ArrowDown move by three. */
+const GRID_STEP: Record<string, number> = {
+  ArrowRight: 1,
+  ArrowLeft: -1,
+  ArrowDown: 3,
+  ArrowUp: -3,
+}
 
 export interface MonthPickerProps {
   id?: string
@@ -37,6 +51,7 @@ export default function MonthPicker({
   className = '',
 }: MonthPickerProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const panelId = useId()
 
   const now = new Date()
   const defaultYear = now.getFullYear() + 543 // Buddhist Year
@@ -62,35 +77,96 @@ export default function MonthPicker({
   }, [parsed?.year])
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const monthRefs = useRef<Array<HTMLButtonElement | null>>([])
 
-  // Close on click outside
+  const close = useCallback((returnFocus = true) => {
+    setIsOpen(false)
+    if (returnFocus) triggerRef.current?.focus()
+  }, [])
+
+  // Escape from anywhere while open (capture, so it wins over the controls inside the panel),
+  // plus dismissal on an outside pointerdown.
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent | TouchEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
+    if (!isOpen) return
+
+    function onDocKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        close()
+      }
+    }
+    function onPointerDown(e: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        close(false) // a pointer dismissal should not yank focus back to the trigger
       }
     }
 
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-      document.addEventListener('touchstart', handleClickOutside)
-    }
+    document.addEventListener('keydown', onDocKeyDown, true)
+    document.addEventListener('pointerdown', onPointerDown)
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('touchstart', handleClickOutside)
+      document.removeEventListener('keydown', onDocKeyDown, true)
+      document.removeEventListener('pointerdown', onPointerDown)
     }
+  }, [isOpen, close])
+
+  // Move focus into the panel on open: the selected month if it is on screen, else the first one.
+  // Deliberately keyed on `isOpen` only — re-running on viewYear changes would steal focus from
+  // the year controls while the panel is open.
+  useEffect(() => {
+    if (!isOpen) return
+    const selectedIdx = parsed && parsed.year === viewYear ? parsed.month - 1 : 0
+    const target = monthRefs.current[selectedIdx] ?? monthRefs.current[0]
+    target?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
+
+  /** Escape + Tab containment for everything rendered inside the popover. */
+  function handlePanelKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      close()
+      return
+    }
+    if (e.key !== 'Tab') return
+    const panel = panelRef.current
+    if (!panel) return
+    const items = Array.from(panel.querySelectorAll<HTMLButtonElement>('button:not([disabled])'))
+    if (items.length === 0) return
+    const first = items[0]
+    const last = items[items.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && active === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
+
+  function handleMonthKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
+    let next: number | null = null
+    if (GRID_STEP[e.key] !== undefined) next = (idx + GRID_STEP[e.key] + 12) % 12
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = 11
+    if (next === null) return
+    e.preventDefault()
+    monthRefs.current[next]?.focus()
+  }
 
   function handleSelectMonth(monthIndex: number) {
     const monthNum = monthIndex + 1
     const padMonth = monthNum < 10 ? `0${monthNum}` : `${monthNum}`
     onChange(`${viewYear}-${padMonth}`)
-    setIsOpen(false)
+    close()
   }
 
-  function handleClear(e: React.MouseEvent) {
-    e.stopPropagation()
+  function handleClearFromTrigger() {
     onChange('')
+    // The clear control disappears with the value, so park focus on the trigger.
+    triggerRef.current?.focus()
   }
 
   function handleSetThisMonth() {
@@ -99,7 +175,7 @@ export default function MonthPicker({
     const currMonth = now.getMonth() + 1
     const padMonth = currMonth < 10 ? `0${currMonth}` : `${currMonth}`
     onChange(`${currBeYear}-${padMonth}`)
-    setIsOpen(false)
+    close()
   }
 
   // Display text on trigger button
@@ -116,10 +192,14 @@ export default function MonthPicker({
     accentColor === 's2'
       ? 'focus:ring-s2-300 focus:border-s2-400'
       : 'focus:ring-s1-300 focus:border-s1-400'
+  const focusRing =
+    accentColor === 's2'
+      ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-s2-400'
+      : 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-s1-400'
   const activeBg =
     accentColor === 's2'
       ? 'bg-s2-600 text-white shadow-md shadow-blue-500/25'
-      : 'bg-s1-600 text-white shadow-md shadow-orange-500/25'
+      : 'bg-s1-700 text-white shadow-md shadow-orange-500/25'
   const hoverBg =
     accentColor === 's2' ? 'hover:bg-s2-50 hover:text-s2-700' : 'hover:bg-s1-50 hover:text-s1-700'
   const currentMonthBorder =
@@ -134,73 +214,89 @@ export default function MonthPicker({
       <button
         type="button"
         id={id}
+        ref={triggerRef}
         disabled={disabled}
         onClick={() => !disabled && setIsOpen((prev) => !prev)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && isOpen) {
+            e.stopPropagation()
+            close()
+          }
+          if (e.key === 'ArrowDown' && !isOpen && !disabled) {
+            e.preventDefault()
+            setIsOpen(true)
+          }
+        }}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
+        aria-controls={isOpen ? panelId : undefined}
         className={`w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-body text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 ${ringColor} transition-all text-left shadow-sm ${
-          disabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'cursor-pointer'
-        }`}
+          value && !disabled ? 'pr-14' : ''
+        } ${disabled ? 'opacity-50 cursor-not-allowed bg-slate-50' : 'cursor-pointer'}`}
       >
-        <span className={`truncate mr-2 ${!displayLabel ? 'text-slate-400 font-normal' : 'font-medium'}`}>
+        <span className={`truncate mr-2 ${!displayLabel ? 'text-slate-500 font-normal' : 'font-medium'}`}>
           {displayLabel || placeholder}
         </span>
-        <div className="flex items-center gap-1.5 shrink-0 text-slate-400">
-          {value && !disabled && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label="ล้างการเลือกเดือน"
-              onClick={handleClear}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.stopPropagation()
-                  onChange('')
-                }
-              }}
-              className="p-0.5 rounded-full hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
-            >
-              <X size={14} />
-            </span>
-          )}
-          <Calendar size={16} className={`transition-colors ${isOpen ? 'text-slate-700' : ''}`} />
-        </div>
+        <Calendar
+          size={16}
+          aria-hidden="true"
+          className={`shrink-0 transition-colors ${isOpen ? 'text-slate-700' : 'text-slate-400'}`}
+        />
       </button>
 
-      {/* Custom Month Picker Popover */}
+      {/* Clear — a sibling, never a button nested inside the trigger button. */}
+      {value && !disabled && (
+        <button
+          type="button"
+          aria-label="ล้างการเลือกเดือน"
+          onClick={handleClearFromTrigger}
+          className={`absolute right-9 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors ${focusRing}`}
+        >
+          <X size={14} aria-hidden="true" />
+        </button>
+      )}
+
+      {/* Selection announcement — polite, so it never interrupts typing elsewhere. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {displayLabel ? `เดือนที่เลือก: ${displayLabel}` : 'ยังไม่ได้เลือกเดือน'}
+      </span>
+
+      {/* Non-modal popover */}
       {isOpen && (
         <div
+          id={panelId}
+          ref={panelRef}
           role="dialog"
+          aria-modal="false"
           aria-label="เลือกเดือนและปี"
-          className="absolute left-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-3.5 w-72 sm:w-80 animate-in fade-in zoom-in-95 duration-100"
+          onKeyDown={handlePanelKeyDown}
+          className="absolute left-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-3.5 w-72 sm:w-80"
         >
           {/* Year Navigation Header */}
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
             <button
               type="button"
               onClick={() => setViewYear((y) => y - 1)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+              className={`p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer ${focusRing}`}
               title="ปีก่อนหน้า"
+              aria-label="ปีก่อนหน้า"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={18} aria-hidden="true" />
             </button>
 
             <div className="text-center">
-              <div className="text-base font-bold text-slate-800">
-                พ.ศ. {viewYear}
-              </div>
-              <div className="text-xs text-slate-400 font-medium">
-                (A.D. {viewYear - 543})
-              </div>
+              <div className="text-base font-bold text-slate-800">พ.ศ. {viewYear}</div>
+              <div className="text-xs text-slate-500 font-medium">(A.D. {viewYear - 543})</div>
             </div>
 
             <button
               type="button"
               onClick={() => setViewYear((y) => y + 1)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+              className={`p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors cursor-pointer ${focusRing}`}
               title="ปีถัดไป"
+              aria-label="ปีถัดไป"
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={18} aria-hidden="true" />
             </button>
           </div>
 
@@ -211,7 +307,9 @@ export default function MonthPicker({
                 key={y}
                 type="button"
                 onClick={() => setViewYear(y)}
-                className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${
+                aria-pressed={y === viewYear}
+                aria-label={`ปี พ.ศ. ${y}`}
+                className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${focusRing} ${
                   y === viewYear
                     ? 'bg-slate-800 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -226,8 +324,7 @@ export default function MonthPicker({
           <div className="grid grid-cols-3 gap-2 mb-3">
             {THAI_MONTHS.map((thMonth, idx) => {
               const isSelected = parsed?.year === viewYear && parsed?.month === idx + 1
-              const isCurrentMonth =
-                viewYear === now.getFullYear() + 543 && idx === now.getMonth()
+              const isCurrentMonth = viewYear === now.getFullYear() + 543 && idx === now.getMonth()
               const abbr = MONTH_ABBR[idx]
               const enAbbr = ENG_MONTH_ABBR[idx]
 
@@ -235,8 +332,14 @@ export default function MonthPicker({
                 <button
                   key={thMonth}
                   type="button"
+                  ref={(el) => {
+                    monthRefs.current[idx] = el
+                  }}
                   onClick={() => handleSelectMonth(idx)}
-                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${
+                  onKeyDown={(e) => handleMonthKeyDown(e, idx)}
+                  aria-pressed={isSelected}
+                  aria-label={`${thMonth} ${viewYear}`}
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${focusRing} ${
                     isSelected
                       ? activeBg
                       : isCurrentMonth
@@ -248,9 +351,7 @@ export default function MonthPicker({
                     {abbr}
                   </span>
                   <span
-                    className={`text-[11px] mt-0.5 ${
-                      isSelected ? 'text-white/80' : 'text-slate-400'
-                    }`}
+                    className={`text-[11px] mt-0.5 ${isSelected ? 'text-white/90' : 'text-slate-500'}`}
                   >
                     {enAbbr}
                   </span>
@@ -263,15 +364,15 @@ export default function MonthPicker({
           <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs font-medium">
             <button
               type="button"
-              onClick={handleClear}
-              className="text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              onClick={() => onChange('')}
+              className={`text-slate-600 hover:text-slate-900 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer ${focusRing}`}
             >
               ล้างค่า (Clear)
             </button>
             <button
               type="button"
               onClick={handleSetThisMonth}
-              className="text-slate-700 hover:text-slate-950 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer font-semibold"
+              className={`text-slate-700 hover:text-slate-950 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer font-semibold ${focusRing}`}
             >
               เดือนนี้ (This Month)
             </button>
