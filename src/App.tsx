@@ -18,6 +18,7 @@ import { resetChartTypes } from '@/hooks/useChartType'
 import { MONTH_ABBR, NAV_TABS } from '@/config'
 import Sidebar from '@/components/layout/Sidebar'
 import PageHeader from '@/components/layout/PageHeader'
+import SafetyBanner from '@/components/layout/SafetyBanner'
 import LoadingSkeleton from '@/components/layout/LoadingSkeleton'
 import DashboardPage from '@/pages/DashboardPage'
 import ZonePage from '@/pages/ZonePage'
@@ -69,6 +70,7 @@ function Shell() {
   // and back never resets a selection the user made.
   const dashboardFilters = useFilters({ zone: 'all' })
   const zoneFilters = useFilters({ zone: 1 })
+  const [privacyMode, setPrivacyMode] = useState(true)
 
   useEffect(() => {
     setSidebarOpen(false)
@@ -100,7 +102,9 @@ function Shell() {
   const showSkeleton = needsData && !hasLoaded && !showInitialError
 
   return (
-    <div className="flex min-h-screen bg-canvas">
+    <div className="flex flex-col min-h-screen bg-canvas">
+      <SafetyBanner privacyMode={privacyMode} onTogglePrivacyMode={setPrivacyMode} />
+      <div className="flex flex-1 min-h-0">
       <Sidebar active={hash} onNavigate={navigate} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="flex-1 min-w-0 relative">
@@ -177,14 +181,15 @@ function Shell() {
             <LoadingSkeleton />
           ) : (
             <>
-              {hash === '#/dashboard' && <DashboardPage sl={sl} hz={hz} filters={dashboardFilters} />}
-              {hash === '#/zone' && <ZonePage sl={sl} hz={hz} filters={zoneFilters} />}
+              {hash === '#/dashboard' && <DashboardPage sl={sl} hz={hz} filters={dashboardFilters} privacyMode={privacyMode} />}
+              {hash === '#/zone' && <ZonePage sl={sl} hz={hz} filters={zoneFilters} privacyMode={privacyMode} />}
               {hash === '#/report' && <ReportPage />}
               {hash === '#/mcatt' && <McattPage />}
               {hash === '#/contact' && <ContactPage />}
             </>
           )}
         </main>
+      </div>
       </div>
 
       {/* Politeness channel for state changes that have no visible focus target (UX-03). */}

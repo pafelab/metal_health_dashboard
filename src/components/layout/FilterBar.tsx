@@ -158,13 +158,16 @@ export default function FilterBar({
   applied,
 }: FilterBarProps) {
   const [local, setLocal] = useState<Filters>(value)
-  // responsive-audit R06: below md the five stacked fields measured 569px tall at 390x820, i.e.
-  // 78% of the screen before any data. The panel therefore starts collapsed on phones and the
-  // draft survives collapsing (only the wrapper is hidden, `local` is untouched); from md up the
-  // grid is always open and this flag is inert.
   const [fieldsOpen, setFieldsOpen] = useState(false)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const fieldsId = useId()
   const barRef = useRef<HTMLDivElement | null>(null)
+
+  const handleApplyPreset = (from: string, to: string) => {
+    const next = { ...local, fromMonth: from, toMonth: to }
+    setLocal(next)
+    onApply(next)
+  }
 
   // Re-sync from the parent's draft on every change that originates OUTSIDE this component.
   // Our own edits never round-trip through `value` mid-typing, so this never clobbers the user.
@@ -347,11 +350,32 @@ export default function FilterBar({
           />
         </button>
 
-        {/* responsive-audit R02: auto-fit with a 12rem floor instead of a fixed five-column row.
-            At 1363px the old `repeat(5,1fr) minmax(max-content,1fr)` gave every field 120.5px
-            while the ล้าง button alone took 198.5px, so every selected value was truncated. The
-            action buttons are no longer the sixth grid column — they moved into the summary row
-            below, which keeps the sticky stack at the same two rows it already was (R06). */}
+        {/* Quick Presets */}
+        <div className="mb-2.5 flex flex-wrap items-center gap-2 text-xs">
+          <span className="font-semibold text-slate-500">ช่วงเวลารวดเร็ว:</span>
+          <button
+            type="button"
+            onClick={() => handleApplyPreset('2569-04', '2569-06')}
+            className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-200 transition-colors"
+          >
+            3 เดือนล่าสุด (เม.ย.-มิ.ย. 69)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleApplyPreset('2569-01', '2569-06')}
+            className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-200 transition-colors"
+          >
+            6 เดือนล่าสุด (ม.ค.-มิ.ย. 69)
+          </button>
+          <button
+            type="button"
+            onClick={() => handleApplyPreset('2568-10', '2569-09')}
+            className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-200 transition-colors"
+          >
+            ปีงบประมาณ 2569
+          </button>
+        </div>
+
         <div
           id={fieldsId}
           className={`${fieldsOpen ? 'grid' : 'hidden'} md:grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-3 items-end`}
@@ -457,7 +481,7 @@ export default function FilterBar({
             </button>
             <button
               type="button"
-              onClick={onClear}
+              onClick={() => setShowClearConfirm(true)}
               aria-label="ล้างตัวกรองทั้งหมด"
               className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 shadow-sm transition-colors cursor-pointer whitespace-nowrap"
             >
@@ -483,6 +507,40 @@ export default function FilterBar({
           )}
         </div>
       </div>
+
+      {/* Clear Confirmation Modal */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-slate-800">
+              <AlertTriangle className="text-amber-500 shrink-0" size={24} />
+              <h3 className="font-bold text-lg">ยืนยันการล้างตัวกรอง</h3>
+            </div>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              คุณต้องการล้างตัวกรองทั้งหมดและคืนค่าเงื่อนไขการแสดงผลเป็นค่าเริ่มต้นใช่หรือไม่?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(false)}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClear()
+                  setShowClearConfirm(false)
+                }}
+                className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 transition-colors"
+              >
+                ยืนยันล้างตัวกรอง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

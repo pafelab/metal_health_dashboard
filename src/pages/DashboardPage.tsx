@@ -3,7 +3,7 @@
 // App.tsx's Shell and passed in as `filters`, so it survives switching tabs.
 
 import { useMemo } from 'react'
-import { Megaphone, Siren } from 'lucide-react'
+import { Activity, LayoutDashboard, Megaphone, Siren, Table2 } from 'lucide-react'
 import type { SLEvent, HazardEvent } from '@/types'
 import { applyFilters } from '@/data'
 import type { UseFiltersResult } from '@/hooks/useFilters'
@@ -17,9 +17,10 @@ export interface DashboardPageProps {
   sl: SLEvent[]
   hz: HazardEvent[]
   filters: UseFiltersResult
+  privacyMode?: boolean
 }
 
-export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
+export default function DashboardPage({ sl, hz, filters, privacyMode = true }: DashboardPageProps) {
   const { draft, applied, setDraft, apply, clear, setProvinceAndApply, clearProvince } = filters
 
   // UX-04: the applied filters live in the hash query so a filtered view can be shared.
@@ -41,8 +42,15 @@ export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
   const showSection2 = applied.hazardType !== 'social'
 
   const navTargets = [
-    ...(showSection1 ? [{ id: 'section-1', label: 'ข้อมูล Social Listening', icon: Megaphone }] : []),
-    ...(showSection2 ? [{ id: 'section-2', label: 'ข้อมูลภัยอื่นๆ', icon: Siren }] : []),
+    ...(showSection1
+      ? [
+          { id: 's1-overview', label: 'ภาพรวม (Overview)', icon: LayoutDashboard },
+          { id: 'section-1', label: 'Social Listening', icon: Megaphone },
+          { id: 's1-suicide', label: 'วิเคราะห์การฆ่าตัวตาย', icon: Activity },
+        ]
+      : []),
+    ...(showSection2 ? [{ id: 'section-2', label: 'ภัยอื่นๆ (Other Hazards)', icon: Siren }] : []),
+    { id: 's1-events', label: 'ตารางเหตุการณ์ & Data QA', icon: Table2 },
   ]
 
   return (
@@ -68,6 +76,7 @@ export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
             onClearProvince={clearProvince}
             baselineTotal={baseline.sl.length}
             baselineLabel="ทั้งประเทศ"
+            privacyMode={privacyMode}
           />
         )}
         {showSection2 && (
@@ -79,6 +88,7 @@ export default function DashboardPage({ sl, hz, filters }: DashboardPageProps) {
             onClearProvince={clearProvince}
             baselineTotal={baseline.hz.length}
             baselineLabel="ทั้งประเทศ"
+            privacyMode={privacyMode}
           />
         )}
       </div>

@@ -224,3 +224,27 @@ export function isValidHttpUrl(value: string): boolean {
     return false
   }
 }
+
+/**
+ * Anonymize personal names and titles in news headlines for PDPA compliance.
+ */
+export function anonymizeHeadline(headline: string, enabled = true): string {
+  if (!enabled || !headline) return headline
+
+  let s = headline
+  // Replace Thai names following common prefixes/ranks
+  const namePatterns = [
+    /(?:นาย|นางสาว|นาง|ด\.ช\.|ด\.ญ\.|เด็กชาย|เด็กหญิง)\s*([ก-๙]{2,}(?:\s+[ก-๙]{2,})?)/g,
+    /(?:สิบเอก|สิบโท|สิบตรี|จ่าสิบเอก|จ่าสิบโท|จ่าสิบตรี|ร้อยตรี|ร้อยโท|ร้อยเอก|พันตรี|พันโท|พันเอก|พลตรี|พลโท|พลเอก|พลตำรวจ|ร้อยตำรวจ|พันตำรวจ)\s*([ก-๙]{2,}(?:\s+[ก-๙]{2,})?)/g,
+  ]
+
+  for (const pattern of namePatterns) {
+    s = s.replace(pattern, (match) => {
+      const parts = match.trim().split(/\s+/)
+      const prefix = parts[0]
+      return `${prefix} [ปกปิดชื่อ/PDPA]`
+    })
+  }
+
+  return s
+}

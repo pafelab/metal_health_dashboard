@@ -12,7 +12,7 @@
 // every phone user has to hit first. It now has an explicit 44px box (h-11 = 49.5px at the 18px
 // root), pulled back by -ml-2 so the icon stays where it always was.
 
-import { Menu, RefreshCw } from 'lucide-react'
+import { Clock, Menu, RefreshCw } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export interface PageHeaderProps {
@@ -65,10 +65,12 @@ export default function PageHeader({
             {title}
           </h2>
           {showReload && (
-            <div className="flex items-center gap-2 min-w-0">
-              <p className="text-xs sm:text-sm text-slate-600 leading-tight truncate">
-                {updatedAt ?? 'รีเฟรชหน้าเมื่อ —'}
-              </p>
+            <div className="flex flex-wrap items-center gap-2 min-w-0 mt-0.5">
+              <span className="inline-flex items-center gap-1 text-xs sm:text-sm font-medium text-slate-600 truncate bg-slate-100/80 px-2.5 py-0.5 rounded-full border border-slate-200">
+                <Clock size={13} className="text-slate-500 shrink-0" />
+                <span>{updatedAt ? updatedAt.replace('รีเฟรชหน้าเมื่อ ', 'อัปเดตล่าสุด: ') : 'อัปเดตล่าสุด: —'}</span>
+                <span className="hidden xl:inline text-slate-400">| แหล่งข้อมูล: Social Media Public Posts</span>
+              </span>
               {refreshing && (
                 <span
                   role="status"
