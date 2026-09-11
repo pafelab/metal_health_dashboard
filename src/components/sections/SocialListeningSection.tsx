@@ -74,6 +74,7 @@ export interface SocialListeningSectionProps {
   baselineTotal?: number
   /** What that baseline is ('ทั้งประเทศ' / 'เขตสุขภาพที่ N'), named explicitly in the copy. */
   baselineLabel?: string
+  privacyMode?: boolean
 }
 
 /** Local display order for the "การช่วยเหลือผู้ก่อเหตุ" pie (widget 21) — not part of the frozen
@@ -114,6 +115,7 @@ export default function SocialListeningSection({
   showMapSideCards = true,
   baselineTotal,
   baselineLabel,
+  privacyMode = true,
 }: SocialListeningSectionProps) {
   const effectiveZone: number | 'all' = zone ?? 'all'
   const isZoneScoped = !!zoneMode && effectiveZone !== 'all'
@@ -283,7 +285,7 @@ export default function SocialListeningSection({
       </div>
 
       {/* ---- Overview first: totals, trend, geography, records (UX-09) ---- */}
-      <div className={GRID}>
+      <div id="s1-overview" className={`${GRID} scroll-mt-24`}>
         {/* Widget 3 — KPI cards */}
         <Span className={FULL}>
           <KpiCards
@@ -358,6 +360,7 @@ export default function SocialListeningSection({
             coverage={coverage}
             outOfPeriodOnly={outOfPeriodOnly}
             onToggleOutOfPeriodOnly={setOutOfPeriodOnly}
+            privacyMode={privacyMode}
           />
         </Span>
       </div>
@@ -470,9 +473,9 @@ export default function SocialListeningSection({
 
           {/* Suicide sub-section (widgets 14-18) */}
           <Span className={FULL}>
-            <h3 className="flex items-center gap-2 text-cardTitle font-bold text-slate-700">
+            <h3 id="s1-suicide" className="scroll-mt-24 flex items-center gap-2 text-cardTitle font-bold text-slate-700">
               <Activity className="text-s1-600" size={22} strokeWidth={2.25} />
-              การฆ่าตัวตาย
+              การฆ่าตัวตาย (Suicide Analysis)
               <span className="text-sm font-medium text-slate-500">({suicideRows.length} เหตุการณ์)</span>
             </h3>
           </Span>

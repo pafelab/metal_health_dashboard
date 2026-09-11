@@ -21,6 +21,7 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
+  Download,
   ExternalLink,
   Search,
   Table2,
@@ -29,7 +30,7 @@ import {
 import Card from '@/components/layout/Card'
 import type { HazardEvent, Severity, SLEvent } from '@/types'
 import { SEVERITY_META } from '@/config'
-import { isValidHttpUrl } from '@/data/normalize'
+import { isValidHttpUrl, anonymizeHeadline } from '@/data/normalize'
 import { isOutOfPeriod, type CoverageWindow } from '@/data'
 
 export interface EventsTableProps {
@@ -46,6 +47,8 @@ export interface EventsTableProps {
   /** Show ONLY those flagged rows — wired from the section's review banner. */
   outOfPeriodOnly?: boolean
   onToggleOutOfPeriodOnly?: (next: boolean) => void
+  /** Anonymize personal names in headlines when true (PDPA). Defaults to true. */
+  privacyMode?: boolean
 }
 
 interface Row {
@@ -161,17 +164,26 @@ export default function EventsTable({
   coverage = null,
   outOfPeriodOnly = false,
   onToggleOutOfPeriodOnly,
+  privacyMode = true,
 }: EventsTableProps) {
   const rows = useMemo(() => toRows(section, sl ?? [], hz ?? []), [section, sl, hz])
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [sort, setSort] = useState<SortState>({ column: 'date', dir: 'desc' })
+  const [dataQaMode, setDataQaMode] = useState<'all' | 'normal' | 'qa'>('all')
   const searchId = useId()
   const hintId = useId()
 
   useEffect(() => {
+    if (outOfPeriodOnly) {
+      setDataQaMode('qa')
+    }
+  }, [outOfPeriodOnly])
+
+  useEffect(() => {
     setPage(1)
-  }, [search, rows, severityFilter, outOfPeriodOnly, sort])
+  }, [search, rows, severityFilter, outOfPeriodOnly, dataQaMode, sort, pageSize])
 
   // UX-02 — a record dated outside the validated reporting period is flagged for review, so the
   // section banner's count is actually findable among hundreds of rows.
@@ -187,9 +199,15 @@ export default function EventsTable({
   // so the subtitle can report matched-out-of-available honestly (audit UX-14).
   const available = useMemo(() => {
     let base = severityFilter ? rows.filter((r) => r.severity === severityFilter) : rows
-    if (outOfPeriodOnly && coverage) base = base.filter((r) => isOutOfPeriod(r.sortKey, coverage))
+    if (coverage) {
+      if (dataQaMode === 'qa' || outOfPeriodOnly) {
+        base = base.filter((r) => isOutOfPeriod(r.sortKey, coverage))
+      } else if (dataQaMode === 'normal') {
+        base = base.filter((r) => !isOutOfPeriod(r.sortKey, coverage))
+      }
+    }
     return base
-  }, [rows, severityFilter, outOfPeriodOnly, coverage])
+  }, [rows, severityFilter, outOfPeriodOnly, dataQaMode, coverage])
 
   const query = search.trim()
   const filtered = useMemo(() => {
@@ -210,13 +228,55 @@ export default function EventsTable({
   }, [available, query, sort])
 
   const matched = filtered.length
-  const totalPages = Math.max(1, Math.ceil(matched / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(matched / pageSize))
   const safePage = Math.min(page, totalPages)
-  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
   const colCount = section === 2 ? 9 : 8
 
   const onSort = (column: SortColumn) =>
     setSort((s) => (s.column === column ? { column, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { column, dir: 'desc' }))
+
+  const exportToCsv = () => {
+    const headers = [
+      'ลำดับ',
+      'เดือน/ปี',
+      'เขต',
+      'จังหวัด',
+      ...(section === 2 ? ['ประเภทภัย'] : []),
+      'หัวข้อข่าว',
+      'ลิงก์',
+      'ระดับ',
+      'การส่งรายงาน',
+    ]
+
+    const csvRows = filtered.map((r, i) => {
+      const headlineStr = anonymizeHeadline(r.headline, privacyMode).replace(/"/g, '""')
+      const linkStr = (r.link || '').replace(/"/g, '""')
+      const hazardsStr = (r.hazards || []).join(', ').replace(/"/g, '""')
+      return [
+        i + 1,
+        `"${r.monthLabel || ''}"`,
+        `"${r.zone !== null ? `เขต ${r.zone}` : ''}"`,
+        `"${r.province || ''}"`,
+        ...(section === 2 ? [`"${hazardsStr}"`] : []),
+        `"${headlineStr}"`,
+        `"${linkStr}"`,
+        `"${meta[r.severity]?.label || ''}"`,
+        `"${r.reporting || ''}"`,
+      ].join(',')
+    })
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `mhso_section_${section}_events.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div id={id} className="h-full scroll-mt-[var(--sticky-offset,96px)]">
@@ -256,22 +316,64 @@ export default function EventsTable({
                   ล้างคำค้น
                 </button>
               )}
+                  <button
+                    type="button"
+                    onClick={exportToCsv}
+                    title="ดาวน์โหลดข้อมูลตารางเป็นไฟล์ CSV"
+                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none hover:bg-slate-50 transition-colors"
+                  >
+                    <Download size={14} />
+                    ดาวน์โหลด CSV
+                  </button>
             </div>
             <p id={hintId} className="mt-1 max-w-[16rem] text-xs text-slate-500">
               ค้นหาเฉพาะหัวข้อข่าวและจังหวัดในตารางนี้ ไม่กระทบตัวกรองด้านบน
             </p>
-            {flaggedCount > 0 && onToggleOutOfPeriodOnly && (
-              <button
-                type="button"
-                aria-pressed={outOfPeriodOnly}
-                onClick={() => onToggleOutOfPeriodOnly(!outOfPeriodOnly)}
-                className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-amber-400 bg-amber-50 px-4 py-1.5 text-xs font-bold text-amber-900 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
-              >
-                <AlertTriangle size={14} aria-hidden="true" />
-                {outOfPeriodOnly
-                  ? 'แสดงทุกรายการ'
-                  : `ดูเฉพาะรายการนอกช่วงข้อมูล (${flaggedCount.toLocaleString('th-TH')})`}
-              </button>
+            {flaggedCount > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold text-slate-500">โหมดกรอง Data QA:</span>
+                <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-0.5 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDataQaMode('all')
+                      if (onToggleOutOfPeriodOnly) onToggleOutOfPeriodOnly(false)
+                    }}
+                    className={`rounded-full px-2.5 py-1 transition-all ${
+                      dataQaMode === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ทั้งหมด
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDataQaMode('normal')
+                      if (onToggleOutOfPeriodOnly) onToggleOutOfPeriodOnly(false)
+                    }}
+                    className={`rounded-full px-2.5 py-1 transition-all ${
+                      dataQaMode === 'normal' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ซ่อนนอกช่วง ({rows.length - flaggedCount})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDataQaMode('qa')
+                      if (onToggleOutOfPeriodOnly) onToggleOutOfPeriodOnly(true)
+                    }}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition-all ${
+                      dataQaMode === 'qa' ? 'bg-amber-500 text-white shadow-sm' : 'text-amber-800 hover:text-amber-900'
+                    }`}
+                  >
+                    <AlertTriangle size={12} />
+                    เฉพาะนอกช่วง ({flaggedCount})
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         }
@@ -389,7 +491,7 @@ export default function EventsTable({
                   const pill = reportingPill(r.reporting)
                   return (
                     <tr key={r.key} className="border-b border-slate-50 align-top last:border-0">
-                      <td className="py-3 pr-3 text-slate-600">{(safePage - 1) * PAGE_SIZE + i + 1}</td>
+                      <td className="py-3 pr-3 text-slate-600">{(safePage - 1) * pageSize + i + 1}</td>
                       <td className="py-3 pr-3 whitespace-nowrap">
                         {r.monthLabel || '-'}
                         {isOutOfPeriod(r.sortKey, coverage) && (
@@ -419,7 +521,9 @@ export default function EventsTable({
                         </td>
                       )}
                       {/* Audit UX-14: headlines wrap in full instead of being clipped. */}
-                      <td className="py-3 pr-3 max-w-[320px] whitespace-normal break-words">{r.headline || '-'}</td>
+                      <td className="py-3 pr-3 max-w-[320px] whitespace-normal break-words">
+                        {r.headline ? anonymizeHeadline(r.headline, privacyMode) : '-'}
+                      </td>
                       <td className="py-3 pr-3">
                         {isValidHttpUrl(r.link) ? (
                           <a
@@ -460,10 +564,26 @@ export default function EventsTable({
 
         {/* Nothing to page through when nothing matched (audit UX-14). */}
         {matched > 0 && (
-          <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
-            <span>
-              หน้า {safePage} จาก {totalPages}
-            </span>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+            <div className="flex items-center gap-2">
+              <span>
+                หน้า {safePage} จาก {totalPages} ({matched.toLocaleString('th-TH')} รายการ)
+              </span>
+              <span className="text-slate-300">|</span>
+              <label className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
+                <span>แสดงหน้าละ:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-bold text-slate-700 outline-none focus:border-slate-500"
+                >
+                  <option value={10}>10 รายการ</option>
+                  <option value={20}>20 รายการ</option>
+                  <option value={50}>50 รายการ</option>
+                  <option value={100}>100 รายการ</option>
+                </select>
+              </label>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"

@@ -20,9 +20,10 @@ export interface ZonePageProps {
   sl: SLEvent[]
   hz: HazardEvent[]
   filters: UseFiltersResult
+  privacyMode?: boolean
 }
 
-export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
+export default function ZonePage({ sl, hz, filters, privacyMode = true }: ZonePageProps) {
   const { draft, applied, setDraft, apply, clear, setProvinceAndApply, clearProvince } = filters
 
   // UX-04: the applied filters live in the hash query so a filtered view can be shared.
@@ -78,6 +79,7 @@ export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
             onClearProvince={clearProvince}
             baselineTotal={baseline.sl.length}
             baselineLabel={baselineLabel}
+            privacyMode={privacyMode}
           />
         )}
         {showSection2 && (
@@ -91,6 +93,7 @@ export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
             onClearProvince={clearProvince}
             baselineTotal={baseline.hz.length}
             baselineLabel={baselineLabel}
+            privacyMode={privacyMode}
           />
         )}
 

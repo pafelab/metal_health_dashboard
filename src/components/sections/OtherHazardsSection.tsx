@@ -37,6 +37,7 @@ export interface OtherHazardsSectionProps {
   baselineTotal?: number
   /** What that baseline is ('ทั้งประเทศ' / 'เขตสุขภาพที่ N'), named explicitly in the copy. */
   baselineLabel?: string
+  privacyMode?: boolean
 }
 
 export default function OtherHazardsSection({
@@ -48,6 +49,7 @@ export default function OtherHazardsSection({
   onClearProvince,
   baselineTotal,
   baselineLabel,
+  privacyMode = true,
 }: OtherHazardsSectionProps) {
   const effectiveZone: number | 'all' = zone ?? 'all'
 
@@ -166,6 +168,7 @@ export default function OtherHazardsSection({
             coverage={coverage}
             outOfPeriodOnly={outOfPeriodOnly}
             onToggleOutOfPeriodOnly={setOutOfPeriodOnly}
+            privacyMode={privacyMode}
           />
         </div>
       </div>

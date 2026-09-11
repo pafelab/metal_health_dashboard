@@ -12,7 +12,7 @@ import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 import { MapPin } from 'lucide-react'
 import type { CategoryCount } from '@/types'
-import { ZONE_PROVINCES } from '@/config'
+import { ZONE_PROVINCES, getPerCapitaRate } from '@/config'
 import { prefersReducedMotion } from './chartOptions'
 import DataTable, { summaryText } from './DataTable'
 import { TableToggle } from './SwitchableChart'
@@ -141,6 +141,7 @@ const RAMP_S2 = ['#EFF6FF', '#93C5FD', '#3B82F6', '#1D4ED8']
 export default function ThailandMap(p: ThailandMapProps): JSX.Element {
   const height = p.height ?? 580
   const isZoneScoped = p.mode === 'zone' && typeof p.zone === 'number'
+  const [isPerCapita, setIsPerCapita] = useState(false)
 
   // Register (once) and pick the map name + province count for the current scope.
   const { mapName, provinceCount } = useMemo(() => {
@@ -159,18 +160,26 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
     [p.data],
   )
 
+  const mapData = useMemo(() => {
+    if (!isPerCapita) return p.data
+    return p.data.map((d) => ({
+      name: d.name,
+      value: getPerCapitaRate(d.value, d.name),
+    }))
+  }, [p.data, isPerCapita])
+
   const top10 = useMemo(
     () => (p.topProvinces ?? [...p.data].sort((a, b) => b.value - a.value)).slice(0, 10),
     [p.topProvinces, p.data],
   )
 
   const maxVal = useMemo(() => {
-    const rawMax = Math.max(...p.data.map((d) => (Number.isFinite(d.value) ? d.value : 0)), 0)
+    const rawMax = Math.max(...mapData.map((d) => (Number.isFinite(d.value) ? d.value : 0)), 0)
     if (rawMax <= 0) return p.accent === 's1' ? 40 : 15
     if (rawMax <= 15) return 15
     if (rawMax <= 30) return 30
     return Math.ceil(rawMax / 10) * 10
-  }, [p.data, p.accent])
+  }, [mapData, p.accent])
 
   const ramp = p.accent === 's1' ? RAMP_S1 : RAMP_S2
 
@@ -190,7 +199,8 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
           'box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.1); border-radius: 12px;',
         formatter: (params: any) => {
           const value = typeof params.value === 'number' ? params.value : 0
-          return `<div style="font-weight:700;font-size:15px;color:#0F172A;margin-bottom:2px">${params.name}</div><div style="font-size:13px;color:#64748B">${value.toLocaleString('en-US')} เหตุการณ์</div>`
+          const unitStr = isPerCapita ? 'ต่อแสนประชากร' : 'เหตุการณ์'
+          return `<div style="font-weight:700;font-size:15px;color:#0F172A;margin-bottom:2px">${params.name}</div><div style="font-size:13px;color:#64748B">${value.toLocaleString('en-US')} ${unitStr}</div>`
         },
       },
       visualMap: {
@@ -203,8 +213,7 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
         itemHeight: 120,
         itemWidth: 12,
         calculable: false,
-        // The legend states the unit, so the colour ramp cannot be read as a rate (audit UX-10).
-        text: [`${maxVal} เหตุการณ์`, '0 เหตุการณ์'],
+        text: [`${maxVal} ${isPerCapita ? '/แสน' : 'เหตุการณ์'}`, '0'],
         inRange: { color: ramp },
         textStyle: { fontFamily: FONT, fontSize: 13, color: '#64748B' },
       },
@@ -230,7 +239,7 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
             itemStyle: { areaColor: '#1E293B' },
             label: { show: false },
           },
-          data: p.data.map((d) => ({
+          data: mapData.map((d) => ({
             name: d.name,
             value: d.value,
             selected: p.selectedProvince ? d.name === p.selectedProvince : false,
@@ -358,18 +367,41 @@ export default function ThailandMap(p: ThailandMapProps): JSX.Element {
           <div className="min-w-0">
             <h3 className="font-sans font-bold text-cardTitle text-slate-800 leading-snug">{p.title}</h3>
             <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
-            <p className="text-sm text-slate-600 mt-0.5">{UNIT_NOTE}</p>
+            <p className="text-sm text-slate-600 mt-0.5">
+              {isPerCapita ? 'หน่วย: อัตราต่อประชากร 100,000 คน' : UNIT_NOTE}
+            </p>
           </div>
         </div>
-        {tableRows.length > 0 && (
-          <div className="ml-auto flex-none">
+        <div className="ml-auto flex flex-wrap items-center gap-2 flex-none">
+          <div className="inline-flex rounded-full border border-slate-200 bg-slate-100 p-0.5 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setIsPerCapita(false)}
+              className={`rounded-full px-3 py-1 transition-all ${
+                !isPerCapita ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              จำนวนจริง
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsPerCapita(true)}
+              className={`rounded-full px-3 py-1 transition-all ${
+                isPerCapita ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ต่อแสนประชากร
+            </button>
+          </div>
+
+          {tableRows.length > 0 && (
             <TableToggle
               pressed={showTable}
               onToggle={() => setShowTable((v) => !v)}
               accent={p.accent}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
       {takeawayText && (
         <p className="px-6 pt-1 pb-1 text-[15px] sm:text-base text-slate-600 leading-relaxed max-w-[75ch] flex-none">
