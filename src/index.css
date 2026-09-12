@@ -22,15 +22,19 @@ textarea {
   html {
     font-size: 18px;
     /* UX-06: anchor jumps / focus scrolls stop below the sticky header+filter stack.
-       FilterBar keeps --sticky-offset up to date with a ResizeObserver. */
-    scroll-padding-top: var(--sticky-offset, 96px);
+       FilterBar keeps --sticky-offset up to date with a ResizeObserver. The fallback is used on
+       routes that never mount a FilterBar (เกณฑ์และแบบฟอร์ม, ติดต่อเรา, ผู้ประสานงาน), so it must
+       match PageHeader's HEADER_HEIGHT_PX — now 128px (80px title row + 48px nav row), up from
+       96px when the header was a single 72px row. */
+    scroll-padding-top: var(--sticky-offset, 128px);
   }
 
   body {
     @apply bg-canvas text-slate-800 text-body antialiased;
   }
 
-  /* Visible focus rings everywhere (keyboard nav on the filter bar, sidebar, chart switcher). */
+  /* Visible focus rings everywhere (keyboard nav on the header nav row, the filter bar and the
+     chart switcher). */
   :focus-visible {
     outline: 2px solid #ea580c;
     outline-offset: 2px;
@@ -44,7 +48,7 @@ textarea {
 }
 
 @layer utilities {
-  /* Thin custom scrollbar for the sidebar, tables and any overflow-x container. */
+  /* Thin custom scrollbar for the header nav row, tables and any overflow-x container. */
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: #cbd5e1 transparent;
@@ -66,6 +70,21 @@ textarea {
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background-color: #94a3b8;
+  }
+
+  /* Scrollable, but with no scrollbar taking layout space. Used by the header's nav row, which
+     lives inside a FIXED-height header (PageHeader.HEADER_HEIGHT_PX, which FilterBar offsets
+     against): an 8px horizontal scrollbar there would eat into the 48px row and clip the 45px
+     pills. The row only overflows below ~1024px, where the half-visible next pill is the usual
+     affordance and scrolling is by touch or trackpad. Has higher specificity than the global `*`
+     scrollbar rules further down, so it wins regardless of source order. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 

@@ -1,11 +1,18 @@
-// Per-tab filter state (SPEC 5.2): a draft the user edits and an applied value that only
-// changes on คัดกรอง / ล้าง / a map click. Pure React state, no I/O.
+// Per-tab filter state (SPEC 5.2): a draft plus the applied value the widgets actually read.
+// Pure React state, no I/O.
+//
+// SPEC 5.2's two-step flow ("applies only on คัดกรอง") was removed by the review deck (slide 11):
+// FilterBar now emits on every dropdown change, so draft and applied move together in practice.
+// The pair is deliberately kept rather than collapsed into one value — `setProvinceAndApply`,
+// `clearProvince`, `setApplied` and `clear` each still need to write BOTH in one commit, and the
+// split is what makes that expressible.
 //
 // `draft` is mirrored into a ref (`draftRef`) alongside the state so `apply()` — which takes no
 // argument by contract — always reads the very latest draft even when called synchronously
 // right after `setDraft()` in the same event handler (React state updates are not read back
 // synchronously, but a plain ref assignment is). FilterBar (src/components/layout/FilterBar.tsx)
-// relies on exactly this: `onApply={(f) => { setDraft(f); apply() }}`.
+// relies on exactly this: `onApply={(f) => { setDraft(f); apply() }}` — one emit per change,
+// one applied write.
 
 import { useCallback, useRef, useState } from 'react'
 import type { Filters } from '@/types'
@@ -61,12 +68,11 @@ export function useFilters(initial: Partial<Filters>): UseFiltersResult {
   }, [])
 
   const clear = useCallback(() => {
-    // Fresh object identity every call (not defaultsRef.current itself) — if `draft` already
-    // equals defaultsRef.current (e.g. the user edited FilterBar's local draft without ever
-    // clicking คัดกรอง), passing that same reference back into setDraftState would be a no-op
-    // React bails on, leaving FilterBar's uncommitted local values on screen. See useFilters.ts
-    // header + FilterBar.tsx's resync effect, which only fires when the `value` prop's identity
-    // changes.
+    // Fresh object identity every call (not defaultsRef.current itself). Passing the same
+    // reference back into setDraftState when `draft` already equals it is a no-op React bails on,
+    // which would leave every subscriber rendering the pre-clear value. Cheap insurance, and it
+    // keeps `clear()` idempotent from the caller's point of view — it backs the ล้างทั้งหมด link
+    // in FilterBar, which is reachable even when nothing is set.
     const d = { ...defaultsRef.current }
     draftRef.current = d
     setDraftState(d)
@@ -88,8 +94,9 @@ export function useFilters(initial: Partial<Filters>): UseFiltersResult {
     setAppliedState(next)
   }, [])
 
-  // Restore a shared '#/dashboard?...' URL (UX-04): draft and applied must land together, or the
-  // bar would show a pending change the user never made.
+  // Restore a shared '#/dashboard?...' URL (UX-04): draft and applied must land together. FilterBar
+  // renders `draft` while every widget renders `applied`, so setting only one of them would leave
+  // the bar and the charts describing different filters.
   const setApplied = useCallback((f: Filters) => {
     const next = { ...f }
     draftRef.current = next

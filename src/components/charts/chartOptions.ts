@@ -37,20 +37,118 @@ export function formatCountPercent(value: number, total: number): string {
  * (handles ำ correctly as a spacing mark); the regex fallback lists ำ explicitly alongside \p{M}
  * since it is category Lo, not Mn, but still must stay glued to the preceding base character.
  */
+type SegmenterCtor = new (
+  locale: string,
+  opts: { granularity: 'grapheme' | 'word' },
+) => { segment: (s: string) => Iterable<{ segment: string }> }
+
+function segmenter(): SegmenterCtor | undefined {
+  return (Intl as unknown as { Segmenter?: SegmenterCtor }).Segmenter
+}
+
 function graphemes(s: string): string[] {
-  const Segmenter = (Intl as unknown as { Segmenter?: new (locale: string, opts: { granularity: string }) => { segment: (s: string) => Iterable<{ segment: string }> } }).Segmenter
+  const Segmenter = segmenter()
   if (Segmenter) {
     return Array.from(new Segmenter('th', { granularity: 'grapheme' }).segment(s), (x) => x.segment)
   }
   return s.match(/[^\p{M}ำ][\p{M}ำ]*/gu) ?? [s]
 }
 
-/** Inserts soft line breaks into long Thai category names instead of letting them clip. */
+/**
+ * Thai words, for real word wrapping ("ดูการตัดคำให้ด้วย", deck slide 20). Thai is written without
+ * spaces between words, so no generic word-break — including ECharts' own `overflow: 'break'` —
+ * can find a boundary inside a Thai run: the whole phrase is one "word" to it. Intl.Segmenter's
+ * 'word' granularity carries a Thai dictionary and does find them. Returns undefined when the
+ * engine has no Segmenter, in which case the caller falls back to cluster chunking.
+ */
+function thaiWords(s: string): string[] | undefined {
+  const Segmenter = segmenter()
+  if (!Segmenter) return undefined
+  try {
+    return Array.from(new Segmenter('th', { granularity: 'word' }).segment(s), (x) => x.segment)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Segments that must never OPEN a line. Intl.Segmenter's Thai word granularity emits a separator
+ * like "/" as a word of its own, so the greedy packer below would happily start a line with it —
+ * "กระโดดน้ำ" / "กระโดดตึก" wrapped with a leading slash on line 2 (deck slide 20,
+ * "ดูการตัดคำให้ด้วย"). Includes ๆ (the Thai repetition mark) and ฯ (the Thai ellipsis
+ * mark), both of which are likewise meaningless at the head of a line.
+ */
+// ๆ = mai yamok (the repetition mark), ฯ = paiyannoi (the Thai ellipsis mark) — written
+// as escapes so the class survives any re-encoding of this file.
+const TRAILING_PUNCT_RE = /^[\/.,:;!?)\]}"'’”ๆฯ-]+$/
+
+/**
+ * Glues every pure-punctuation segment onto the word before it, BEFORE packing, so the packer can
+ * never place one at the start of a line. Nothing is dropped: a segment with no preceding word
+ * stays a segment of its own, and an over-long glued word is still hard-split by chunkClusters.
+ */
+function glueTrailingPunctuation(words: string[]): string[] {
+  const out: string[] = []
+  for (const word of words) {
+    if (out.length > 0 && TRAILING_PUNCT_RE.test(word)) out[out.length - 1] += word
+    else out.push(word)
+  }
+  return out
+}
+
+/** Hard-splits an over-long run on grapheme clusters — the last resort for a single word that is
+ *  itself longer than a line. Never truncates: every cluster survives on some line. */
+function chunkClusters(s: string, maxChars: number): string[] {
+  const clusters = graphemes(s)
+  if (clusters.length <= maxChars) return [s]
+  const chunks: string[] = []
+  for (let i = 0; i < clusters.length; i += maxChars) {
+    chunks.push(clusters.slice(i, i + maxChars).join(''))
+  }
+  return chunks
+}
+
+/**
+ * Inserts soft line breaks into long Thai category names instead of letting them clip or run off
+ * the plot. Breaks on WORD boundaries wherever the engine can find them (deck slide 20 asks for
+ * correct word breaking; truncating with an ellipsis is explicitly not acceptable), and only
+ * falls back to splitting mid-word when a single word is longer than one line. A line never opens
+ * on punctuation: separators travel with the word in front of them.
+ */
 export function wrapThaiLabel(name: string, maxCharsPerLine = 12): string {
   const clusters = graphemes(name)
   if (clusters.length <= maxCharsPerLine) return name
 
-  // If there's a space (e.g. "มากกว่า 60" or "ผู้ป่วย SMI-V"), prefer breaking at the space
+  // Punctuation is glued to the word before it BEFORE the packing test, so a separator can never
+  // be pushed onto the next line on its own (see glueTrailingPunctuation).
+  const rawWords = thaiWords(name)
+  const words = rawWords && glueTrailingPunctuation(rawWords)
+  if (words && words.length > 1) {
+    const lines: string[] = []
+    let current = ''
+    let currentLen = 0
+    for (const word of words) {
+      const len = graphemes(word).length
+      if (currentLen > 0 && currentLen + len > maxCharsPerLine) {
+        lines.push(current)
+        current = word
+        currentLen = len
+      } else {
+        current += word
+        currentLen += len
+      }
+    }
+    if (current) lines.push(current)
+    // The segmenter emits spaces as their own segments, so a line can end (or start) on one.
+    // (Non-space punctuation cannot: it was already glued to its preceding word above.)
+    const packed = lines.map((l) => l.trim()).filter((l) => l.length > 0)
+    if (packed.length > 0) {
+      return packed.flatMap((l) => chunkClusters(l, maxCharsPerLine)).join('\n')
+    }
+  }
+
+  // No Segmenter: break at the last space (e.g. "มากกว่า 60" or "ผู้ป่วย SMI-V") if that lands
+  // both halves within a line, otherwise chunk on clusters.
   if (name.includes(' ')) {
     const spaceIdx = name.lastIndexOf(' ')
     const first = name.slice(0, spaceIdx).trim()
@@ -60,11 +158,7 @@ export function wrapThaiLabel(name: string, maxCharsPerLine = 12): string {
     }
   }
 
-  const chunks: string[] = []
-  for (let i = 0; i < clusters.length; i += maxCharsPerLine) {
-    chunks.push(clusters.slice(i, i + maxCharsPerLine).join(''))
-  }
-  return chunks.join('\n')
+  return chunkClusters(name, maxCharsPerLine).join('\n')
 }
 
 /**
@@ -89,6 +183,11 @@ const baseTextStyle = { fontFamily: FONT, fontSize: LABEL_SIZE }
 const baseTooltip: EChartsOption['tooltip'] = {
   textStyle: baseTextStyle,
   confine: true,
+  // Deck slide 20 — a tooltip is the one place a long Thai category name is shown unwrapped, and
+  // ECharts lets its box grow to whatever one line needs. Capping the width and allowing normal
+  // wrapping keeps it inside the card; `confine` then keeps it inside the viewport.
+  // This object is spread into all seven builders, so it is the single place to change this.
+  extraCssText: 'max-width: 320px; white-space: normal; line-height: 1.5;',
 }
 
 export interface ChartOptionParams {
@@ -155,6 +254,27 @@ function buildAxisOption(
   const isHorizontal = kind === 'hbar'
   const isLineFamily = kind === 'line' || kind === 'area' || kind === 'step'
 
+  /**
+   * Right-hand gutter reserved for an hbar's value labels, measured from the labels that will
+   * actually be drawn rather than fixed at 90px. "1,234 (45.6%) ครั้ง" is ~130px at 14px, so the
+   * old constant clipped every widget that carried a valueSuffix or four-digit counts. ~8.5px per
+   * character is a deliberate over-estimate for a mixed Thai/latin string at this size; the cap
+   * stops a pathological label from squeezing the bars themselves.
+   */
+  const labelGutter = isHorizontal
+    ? Math.min(
+        220,
+        Math.max(
+          90,
+          data.reduce((widest, d) => {
+            if (typeof d.value !== 'number') return widest
+            const text = formatCountPercent(d.value, denom) + valueSuffix
+            return Math.max(widest, Math.ceil(text.length * 8.5) + 16)
+          }, 0),
+        ),
+      )
+    : 0
+
   const series = [
     {
       name: seriesName ?? 'series1',
@@ -210,7 +330,7 @@ function buildAxisOption(
       return `${names[idx]}<br/>${v == null ? NO_DATA_TEXT : labelFmt({ value: v })}`
     } },
     grid: isHorizontal
-      ? { left: 16, right: 90, top: 24, bottom: 16, containLabel: true }
+      ? { left: 16, right: labelGutter, top: 24, bottom: 16, containLabel: true }
       : { left: 16, right: 24, top: 40, bottom: 48, containLabel: true },
     xAxis: isHorizontal ? valueAxis : categoryAxis,
     yAxis: isHorizontal ? { ...categoryAxis, inverse: true } : valueAxis,
@@ -251,8 +371,8 @@ function buildPieFamilyOption(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sliceLabel = (p: any): string =>
     crowded
-      ? `${p.name}\n${(typeof p.value === 'number' ? p.value : 0).toLocaleString('en-US')}${valueSuffix}`
-      : `${p.name}\n${labelFmt({ value: p.value })}`
+      ? `${wrapThaiLabel(p.name)}\n${(typeof p.value === 'number' ? p.value : 0).toLocaleString('en-US')}${valueSuffix}`
+      : `${wrapThaiLabel(p.name)}\n${labelFmt({ value: p.value })}`
 
   return {
     textStyle: baseTextStyle,
@@ -263,6 +383,9 @@ function buildPieFamilyOption(
       bottom: 0,
       type: 'scroll',
       textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE },
+      // Same word breaking in the legend row — long Thai names used to push the scroll arrows off
+      // the card rather than wrap (deck slide 20).
+      formatter: (name: string) => wrapThaiLabel(name, 18),
     },
     series: [
       {
@@ -281,6 +404,14 @@ function buildPieFamilyOption(
         label: {
           fontFamily: FONT,
           fontSize: LABEL_SIZE,
+          // Deck slide 20: the name arrives already broken on Thai word boundaries (see
+          // wrapThaiLabel) and the \n it inserts is honoured on its own, so NO `width` /
+          // `overflow` is set here. zrender's own 'break' wrap looks for a word-break character
+          // and, finding none inside an unspaced Thai run, hard-breaks at the current code unit —
+          // which can separate a สระ/วรรณยุกต์ from the consonant it belongs to, the exact failure
+          // graphemes() exists to prevent. Letting it re-wrap our already-wrapped lines could
+          // trip that; 'truncate' with an ellipsis is explicitly not acceptable either.
+          lineHeight: 18,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           formatter: (p: any) => sliceLabel(p),
         },
@@ -312,7 +443,12 @@ function buildTreemapOption({ data, total, valueSuffix = '', colors }: ChartOpti
           fontFamily: FONT,
           fontSize: LABEL_SIZE,
           color: '#1E293B',
-          formatter: (p: any) => `${p.name}\n${labelFmt({ value: p.value })}`,
+          // A treemap tile clips its label to the tile: 'break' overrides zrender's default
+          // 'truncate' so a name that does not fit wraps instead of gaining an ellipsis (deck
+          // slide 20). wrapThaiLabel has already placed the Thai word breaks.
+          overflow: 'break',
+          lineHeight: 18,
+          formatter: (p: any) => `${wrapThaiLabel(p.name)}\n${labelFmt({ value: p.value })}`,
         },
         data: data.map((d) => ({ name: d.name, value: d.value ?? 0 })),
       },
@@ -345,7 +481,10 @@ function buildFunnelOption({ data, total, valueSuffix = '', colors }: ChartOptio
         label: {
           fontFamily: FONT,
           fontSize: LABEL_SIZE,
-          formatter: (p: any) => `${p.name}  ${labelFmt({ value: p.value })}`,
+          // Same reasoning as the pie label: the \n from wrapThaiLabel does the breaking, and
+          // an `overflow` with no `width` would be a no-op anyway.
+          lineHeight: 18,
+          formatter: (p: any) => `${wrapThaiLabel(p.name, 16)}\n${labelFmt({ value: p.value })}`,
         },
         data: data.map((d) => ({ name: d.name, value: d.value ?? 0 })),
       },
@@ -418,6 +557,25 @@ export function buildMultiSeriesOption(
     splitLine: { lineStyle: { color: '#EEF2F7' } },
   }
 
+  // Same measured gutter as buildAxisOption's hbar: the grouped/horizontal labels are the same
+  // "1,234 (45.6%)<suffix>" strings, and 100px clipped them as soon as a suffix was supplied.
+  const multiLabelGutter = isHorizontal
+    ? Math.min(
+        220,
+        Math.max(
+          100,
+          series.reduce(
+            (widest, s) =>
+              s.data.reduce((w, v) => {
+                const text = `${(v || 0).toLocaleString('en-US')} (100.0%)${valueSuffix}`
+                return Math.max(w, Math.ceil(text.length * 8.5) + 16)
+              }, widest),
+            0,
+          ),
+        ),
+      )
+    : 0
+
   const seriesOut = series.map((s, i) => ({
     name: s.name,
     type: 'bar',
@@ -472,7 +630,7 @@ export function buildMultiSeriesOption(
     },
     legend: { top: 0, textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE } },
     grid: isHorizontal
-      ? { left: 16, right: 100, top: 40, bottom: 16, containLabel: true }
+      ? { left: 16, right: multiLabelGutter, top: 40, bottom: 16, containLabel: true }
       : { left: 16, right: 24, top: 48, bottom: 48, containLabel: true },
     xAxis: isHorizontal ? valueAxis : categoryAxis,
     yAxis: isHorizontal ? { ...categoryAxis, inverse: true } : valueAxis,

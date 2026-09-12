@@ -27,7 +27,16 @@ export const HAZARD_TYPES: HazardTypeDef[] = [
 /** Label used when a Section-2 row carries none of the 6 hazard flags. SPEC 3.3. */
 export const HAZARD_UNSPECIFIED_LABEL = 'ภัยอื่นๆ (ไม่ระบุ)'
 
-/** ประเภทภัย filter dropdown values, in display order. SPEC 5.2. */
+/**
+ * ประเภทภัย filter dropdown values, in display order. SPEC 5.2.
+ *
+ * Labels are already Thai-only (review deck slide 10 — no English in any dropdown); FilterBar
+ * keeps the English names as search aliases instead. 'Social Listening' stays as-is: it is the
+ * proper name of the data source and of the section heading it filters to, not a gloss.
+ *
+ * Any change to the `key`s here MUST be made in the same commit as VALID_HAZARD_KEYS in
+ * src/hooks/useFilterUrlSync.ts, or a shared link's '?type=' is silently dropped on restore.
+ */
 export const HAZARD_FILTER_OPTIONS: { key: string; label: string }[] = [
   { key: 'all', label: 'ทั้งหมด' },
   { key: 'social', label: 'Social Listening' },

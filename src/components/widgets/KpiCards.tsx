@@ -64,6 +64,11 @@ function SeverityCard({
   const style = SEVERITY_STYLE[key]
   const response = RESPONSE_TIME[key]
 
+  // SEVERITY_STYLE only keys black/red/yellow; Severity also has 'unknown'. Today both call sites
+  // below pass one of the three, but the type of `entry` does not say so — without this guard an
+  // 'unknown' entry would dereference `undefined.bg` and take the whole section down.
+  if (!style) return null
+
   return (
     <div className={`relative flex flex-col items-center justify-start rounded-card border ${style.bg} ${style.border} p-5 text-center shadow-card`}>
       <SeverityInfoButton entry={entry} accentBorderClassName={style.border} className="absolute right-1 top-1" />
@@ -108,13 +113,16 @@ export default function KpiCards({ section, counts, onDrillDown, activeSeverity 
   const TotalIcon = section === 1 ? Globe : AlertTriangle
 
   return (
-    /* responsive-audit R09: four columns from xl, not md — a breakpoint chosen from the width
-       the cards actually get, not from the viewport. md:grid-cols-4 gave each card ~168px (124px
-       of content after the p-5 padding), too narrow for a 56px number, and at exactly lg the
-       288px sidebar appears at the same moment, so the content area SHRINKS to 726px there and
-       measured 63px of page overflow out of the total card. Below xl the total card takes the
-       full row and the three severity cards share the next one (~230px each). */
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+    /* responsive-audit R09, revised for the sidebar-less layout: the four-column breakpoint is
+       still chosen from the width the cards actually get, but that width changed. The 288px
+       sidebar that used to appear at exactly lg — shrinking the content area to 726px and
+       pushing 63px of overflow out of the total card — no longer exists, so at lg (1024px) the
+       content column is the full 1024px minus the px-4 sm:px-6 gutter ≈ 976px: four columns with
+       gap-4 give ~232px each, ~192px of content after the p-5 padding, comfortably more than the
+       ~168px that was measured as too narrow for the 56px number. Hence lg:grid-cols-4.
+       LoadingSkeleton mirrors this as sm:grid-cols-2 lg:grid-cols-4. Below lg the total card
+       takes the full row and the three severity cards share the next one. */
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
       <div className={`relative flex flex-col justify-center overflow-hidden rounded-card ${accentBg} p-5 text-white shadow-card`}>
         <TotalIcon className="absolute -bottom-4 -right-4 h-28 w-28 opacity-20" strokeWidth={1.5} aria-hidden="true" />
         <p className="z-10 mb-1 text-xs font-bold text-white">เหตุการณ์ตรวจสอบทั้งหมด</p>
@@ -125,7 +133,7 @@ export default function KpiCards({ section, counts, onDrillDown, activeSeverity 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 xl:col-span-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:col-span-3">
         <SeverityCard entry={meta.black} count={counts.black} total={counts.total} onDrillDown={onDrillDown} isActive={activeSeverity === 'black'} />
         <SeverityCard entry={meta.red} count={counts.red} total={counts.total} onDrillDown={onDrillDown} isActive={activeSeverity === 'red'} />
         <SeverityCard entry={meta.yellow} count={counts.yellow} total={counts.total} onDrillDown={onDrillDown} isActive={activeSeverity === 'yellow'} />

@@ -1,47 +1,64 @@
-// SPEC 6.1 — Section 1 "ข้อมูล Social Listening", widgets 1-21. Widget ids and the widgets
-// themselves are unchanged; UX-09 re-orders them so the OVERVIEW (scope + coverage, severity
-// totals, trend, map, event records) comes first and every secondary breakdown moves into the
-// collapsible "การวิเคราะห์เชิงลึก" group underneath, in its previous relative order.
-// Also implements SPEC 6.4's zone-mode variants that live entirely inside this component
-// (widget 20 becomes a per-province bar, section title gets the zone suffix, the map zooms to
-// the zone). Widget ids are stable strings so SPEC 7's persisted chart-type choice is shared
-// between the Dashboard tab and the zone tab (SPEC 6.4).
+// SPEC 6.1 — Section 1 "ข้อมูล Social Listening".
+//
+// LAYOUT, review deck แก้งับ.pdf slides 1-4 and 13-21. UX-09's collapsible "การวิเคราะห์เชิงลึก"
+// group is GONE — the deck strikes it out explicitly ("ตัดการวิเคราะห์เชิงลึก รายละเอียดของ
+// เหตุการณ์ตามที่กรองไว้ออก") — and its children are hoisted into the section itself. The reason
+// UX-09 gave for the wrapper (the overview must be readable before the breakdowns) survives as the
+// ORDER below, not as a disclosure widget: severity KPIs → the two headline infographics →
+// trend → patient status/groups → geography → casualties → demographics → suicide → the records.
+// Each topic is now framed by its own card with a filled title band (Card `headerTone="brand"`,
+// deck slide 9 "สีฟ้าก็ได้ ดูสบายตา") instead of by one shared <details>.
+//
+// Widget ids stay stable strings so SPEC 7's persisted chart-type choice is shared between the
+// Dashboard tab and the zone tab (SPEC 6.4) — EXCEPT where a widget's rendering changed shape
+// (the status donut, the 7-group bar, the impact chart, the age chart), which take NEW ids: a
+// returning user's persisted 'pie'/'table' choice must not be resurrected on a chart that no
+// longer offers it.
+//
+// Also implements SPEC 6.4's zone-mode variants that live entirely inside this component (the
+// per-zone bar becomes a per-province bar, the section title gets the zone suffix, the map zooms
+// to the zone). Everything here is rendered by ZonePage too, with `rows` already narrowed to one
+// zone — nothing below may assume national scope.
 //
 // All aggregation is delegated to '@/data' (SPEC's frozen data layer) — nothing here recomputes
 // a count itself, it only shapes already-aggregated CategoryCount[]/etc. into widget props.
 
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import ReactECharts from 'echarts-for-react'
 import {
   Megaphone,
   TrendingUp,
   MapPin,
   Users,
-  Brain,
   Users2,
   CalendarDays,
-  UserCheck,
-  Stethoscope,
   Activity,
   MapPinned,
   UserRound,
   AlertOctagon,
   AlertTriangle,
   ListChecks,
-  Layers,
+  LifeBuoy,
+  PieChart,
+  Donut,
+  BarChart3,
+  BarChartHorizontal,
+  HeartPulse,
   Map as MapIcon,
-  HandHeart,
+  type LucideIcon,
 } from 'lucide-react'
-import type { SLEvent, Severity } from '@/types'
+import type { SLEvent, Severity, CategoryCount } from '@/types'
 import {
   severityCounts,
   monthlyTrend,
   provinceCounts,
   topN,
   countBy,
-  psychiatricDiagnosisCounts,
-  impactByPatientGroup,
+  patientStatusCounts,
+  patientGroup7Counts,
+  impactByGroup7,
   genderSplit,
-  ageBandByGender,
+  ageBandCounts,
   riskFactors,
   warningSigns,
   suicideSubset,
@@ -50,16 +67,27 @@ import {
   reportedMonthKeys,
   outOfPeriodRows,
 } from '@/data'
-import { CATEGORY_ORDERS, AGE_BANDS, PALETTE, ZONE_PROVINCES } from '@/config'
+import {
+  CATEGORY_ORDERS,
+  AGE_BANDS,
+  PALETTE,
+  ZONE_PROVINCES,
+  STATUS5_COLORS,
+  GROUP7_COLORS,
+} from '@/config'
 import { useSheetData } from '@/hooks/useSheetData'
-import SwitchableChart, { MultiSeriesChart } from '@/components/charts/SwitchableChart'
+import { useChartType } from '@/hooks/useChartType'
+import { FONT, LABEL_SIZE, wrapThaiLabel } from '@/components/charts/chartOptions'
+import SwitchableChart from '@/components/charts/SwitchableChart'
 import ThailandMap from '@/components/charts/ThailandMap'
+import Card from '@/components/layout/Card'
 import KpiCards from '@/components/widgets/KpiCards'
 import RiskWarning from '@/components/widgets/RiskWarning'
 import GenderFigure from '@/components/widgets/GenderFigure'
-import GroupImpactTable from '@/components/widgets/GroupImpactTable'
+import GroupImpactTable, { ChartSwitcher, type SwitchOption } from '@/components/widgets/GroupImpactTable'
 import EventsTable from '@/components/widgets/EventsTable'
-import AnalysisGroup, { scrollToWidget } from './AnalysisGroup'
+import DenominatorNote from '@/components/widgets/DenominatorNote'
+import { scrollToWidget } from '@/lib/scrollToWidget'
 
 export interface SocialListeningSectionProps {
   rows: SLEvent[]
@@ -76,24 +104,51 @@ export interface SocialListeningSectionProps {
   baselineLabel?: string
 }
 
-/** Local display order for the "การช่วยเหลือผู้ก่อเหตุ" pie (widget 21) — not part of the frozen
- *  CATEGORY_ORDERS set (categoryOrders.ts doesn't cover this column), so it's kept here instead;
- *  countBy() still appends any unlisted value rather than dropping it (SPEC 4.5). */
-const ASSISTANCE_ORDER = [
-  'เข้าสู่กระบวนการทางกฎหมาย',
-  'เข้าสู่กระบวนการรักษา',
-  'เสียชีวิต',
-  'ข้อมูลไม่เพียงพอ',
-]
-
-/** Local display order for the suicide age-group split (widget 16) — SLEvent.suicideAgeGroup
- *  (SPEC 3.2 col 11), observed values '<18' / '>=18 ปี' (SPEC 3.2 "Observed value sets"). */
-const SUICIDE_AGE_ORDER = ['ต่ำกว่า 18', '≥ 18 ปี']
-
 /** Denominator a truncated top-N chart must report (UX-13): the sum of the WHOLE distribution,
  *  not of the 5/10 bars that happen to be drawn. */
 function sumValues(counts: { value: number }[]): number {
   return counts.reduce((acc, c) => acc + (Number.isFinite(c.value) ? c.value : 0), 0)
+}
+
+function fmt(n: number): string {
+  return n.toLocaleString('th-TH')
+}
+
+/** '12.3%' — or '—' when there is nothing to divide by (UX-11: never print 0.0% for "no data"). */
+function pctText(n: number, total: number): string {
+  return total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—'
+}
+
+/** WCAG relative luminance of a '#rrggbb' colour. */
+function luminance(hex: string): number {
+  const h = hex.replace('#', '')
+  const ch = [0, 2, 4].map((i) => {
+    const v = parseInt(h.slice(i, i + 2), 16) / 255
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+}
+
+/** Label colour that stays legible ON a slice of `hex`. STATUS5_COLORS pairs violet-300/orange-300
+ *  pastels with violet-600/orange-600, so one flat white cannot serve all five (UX-05): the light
+ *  shades take dark slate, the saturated ones take whichever of the two contrasts better. */
+function readableOn(hex: string): string {
+  return luminance(hex) > 0.179 ? '#1E293B' : '#FFFFFF'
+}
+
+/** A slice thinner than this cannot hold a legible inside label; below it the percent is left to
+ *  the legend column beside the chart rather than drawn over a sliver it would overflow. */
+const MIN_INSIDE_LABEL_SHARE = 0.05
+
+/** Top-N depth of every ranked chart in the suicide module (deck slide 20 puts cause, location and
+ *  method all at the same depth). The headings below are derived from the number of bars that
+ *  actually come back, never from this constant — a filtered subset routinely has fewer. */
+const SUICIDE_TOP_N = 5
+
+/** 'สาเหตุการฆ่าตัวตาย 5 อันดับสูงสุด' — but with the REAL bar count, and without the ranking
+ *  phrase at all when there is only one bar to rank. */
+function topTitle(base: string, count: number): string {
+  return count > 1 ? `${base} ${count} อันดับสูงสุด` : base
 }
 
 function Span({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -103,6 +158,327 @@ function Span({ children, className = '' }: { children: ReactNode; className?: s
 const GRID = 'grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4'
 const HALF = 'md:col-span-1 xl:col-span-2'
 const FULL = 'md:col-span-2 xl:col-span-4'
+
+/** Same wording as SwitchableChart's own empty state, for the hand-built charts below. */
+function EmptyBlock() {
+  return (
+    <div className="flex min-h-[180px] flex-1 items-center justify-center text-tableText text-slate-500">
+      ไม่มีข้อมูลในขอบเขตที่เลือก
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------------------------------- *
+ * Hand-built chart blocks.
+ *
+ * These do NOT go through SwitchableChart, for two reasons the deck forces:
+ *   1. slides 15/18 delete the "รวม N เหตุการณ์" summary line that SwitchableChart prints under
+ *      every plot, and
+ *   2. slide 9 asks these cards for a filled header band, which SwitchableChart's Card call does
+ *      not expose.
+ * Everything else they need (count + percent labels, wrapped Thai category labels, a keyboard
+ * switcher, an image role with a Thai label) is reproduced here.
+ * ------------------------------------------------------------------------------------------- */
+
+interface CategoryBarsProps {
+  data: CategoryCount[]
+  /** Percentage denominator. For a top-N chart this is the FULL distribution total (UX-13). */
+  total: number
+  orientation?: 'hbar' | 'bar'
+  colors?: string[]
+  /** Wrap width for the category axis labels — long Thai names wrap, never clip ("ดูการตัดคำ"). */
+  maxLabelChars?: number
+  ariaLabel: string
+  /** Height override; a horizontal chart otherwise sizes itself from the number of bars. */
+  height?: number
+}
+
+function CategoryBars({
+  data,
+  total,
+  orientation = 'hbar',
+  colors,
+  maxLabelChars,
+  ariaLabel,
+  height,
+}: CategoryBarsProps) {
+  const horizontal = orientation === 'hbar'
+  const isEmpty = data.length === 0 || data.every((d) => !d.value)
+
+  const option = useMemo(() => {
+    const palette = colors ?? PALETTE.categorical
+    const catAxis = {
+      type: 'category' as const,
+      data: data.map((d) => d.name),
+      // A horizontal bar axis draws bottom-up; inverse puts the first category at the top.
+      inverse: horizontal,
+      axisLabel: {
+        fontFamily: FONT,
+        fontSize: LABEL_SIZE,
+        interval: 0,
+        color: '#334155',
+        formatter: (name: string) => wrapThaiLabel(name, maxLabelChars ?? (horizontal ? 18 : 10)),
+      },
+      axisTick: { alignWithLabel: true },
+    }
+    const valAxis = {
+      type: 'value' as const,
+      axisLabel: { fontFamily: FONT, fontSize: LABEL_SIZE },
+      splitLine: { lineStyle: { color: '#F1F5F9' } },
+    }
+    return {
+      textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE },
+      grid: {
+        left: 8,
+        // Room for the "N ราย (x%)" label that sits to the right of every horizontal bar —
+        // measured at ~115px for the widest case ("303 ราย (52.2%)") at 14px Prompt.
+        right: horizontal ? 128 : 16,
+        top: horizontal ? 12 : 40,
+        bottom: 8,
+        containLabel: true,
+      },
+      tooltip: {
+        trigger: 'item' as const,
+        formatter: (p: { name?: string; value?: number }) =>
+          `${String(p.name ?? '').replace(/\n/g, ' ')}<br/>${fmt(p.value ?? 0)} ราย (${pctText(p.value ?? 0, total)})`,
+      },
+      xAxis: horizontal ? valAxis : catAxis,
+      yAxis: horizontal ? catAxis : valAxis,
+      series: [
+        {
+          type: 'bar' as const,
+          barMaxWidth: horizontal ? 30 : 56,
+          data: data.map((d, i) => ({
+            value: d.value,
+            itemStyle: {
+              color: palette[i % palette.length],
+              borderRadius: horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0],
+            },
+          })),
+          label: {
+            show: true,
+            position: horizontal ? ('right' as const) : ('top' as const),
+            fontFamily: FONT,
+            fontSize: LABEL_SIZE,
+            color: '#334155',
+            lineHeight: 18,
+            // Count AND percent on every bar — deck slides 16/18/20 ask for both.
+            formatter: (p: { value?: number }) =>
+              horizontal
+                ? `${fmt(p.value ?? 0)} ราย (${pctText(p.value ?? 0, total)})`
+                : `${pctText(p.value ?? 0, total)}\n${fmt(p.value ?? 0)} ราย`,
+          },
+        },
+      ],
+    }
+  }, [data, total, horizontal, colors, maxLabelChars])
+
+  if (isEmpty) return <EmptyBlock />
+
+  // Deck slide 15: "ไม่อยากให้เลื่อน อยากให้ข้อความขึ้นมาแบบไม่ต้องเลื่อน" — every category gets
+  // its own row of real height, so all of them are on screen at once with nothing to scroll.
+  const resolvedHeight = height ?? (horizontal ? Math.max(240, data.length * 54 + 48) : 360)
+
+  return (
+    <div role="img" aria-label={ariaLabel}>
+      <ReactECharts option={option} style={{ height: resolvedHeight, width: '100%' }} notMerge lazyUpdate />
+    </div>
+  )
+}
+
+const PIE_SWITCH: SwitchOption[] = [
+  { type: 'donut', icon: Donut, label: 'แผนภูมิโดนัท' },
+  { type: 'pie', icon: PieChart, label: 'แผนภูมิวงกลม' },
+]
+
+const BAR_SWITCH: SwitchOption[] = [
+  { type: 'hbar', icon: BarChartHorizontal, label: 'แท่งนอน' },
+  { type: 'bar', icon: BarChart3, label: 'แท่งตั้ง' },
+]
+
+/**
+ * Deck slide 15/16 card #1 — the 5-way ประเภทผู้ป่วย donut. The percentage rides on the slice and
+ * the raw count rides in the legend ("ตรงเปอเซ็นด้านขวา อาจจะเปลี่ยนเป็นจำนวน ราย เพราะเปอเซ็นจะ
+ * อยู่ในวงแล้ว"), and the filtered total sits in the hole. The legend is HTML rather than an
+ * ECharts legend so the Thai status names wrap instead of being ellipsised.
+ */
+function PatientStatusCard({ data }: { data: CategoryCount[] }) {
+  const [type, setType] = useChartType('s1-patient-status5', 'donut', ['donut', 'pie'])
+  const total = useMemo(() => sumValues(data), [data])
+  const isDonut = type !== 'pie'
+
+  const option = useMemo(() => {
+    return {
+      textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE },
+      color: STATUS5_COLORS,
+      legend: { show: false },
+      tooltip: {
+        trigger: 'item' as const,
+        formatter: (p: { name?: string; value?: number }) =>
+          `${p.name ?? ''}<br/>${fmt(p.value ?? 0)} ราย (${pctText(p.value ?? 0, total)})`,
+      },
+      title: isDonut
+        ? {
+            text: fmt(total),
+            subtext: 'เหตุการณ์',
+            left: 'center',
+            top: 'middle',
+            itemGap: 2,
+            textStyle: { fontFamily: FONT, fontSize: 32, fontWeight: 'bold' as const, color: '#1E293B' },
+            subtextStyle: { fontFamily: FONT, fontSize: LABEL_SIZE, color: '#475569' },
+          }
+        : undefined,
+      series: [
+        {
+          type: 'pie' as const,
+          radius: isDonut ? ['54%', '78%'] : '74%',
+          center: ['50%', '50%'],
+          avoidLabelOverlap: true,
+          // The smallest status is 8 of 580 (1.4%): give it a floor so the SLICE stays visible
+          // instead of collapsing into the ring. Its percent is not drawn on such a sliver — an
+          // inside label there would overflow into its neighbours — the legend row below carries it.
+          minAngle: 4,
+          itemStyle: { borderColor: '#FFFFFF', borderWidth: 2 },
+          // Deck slide 15: "เปอเซ็นจะอยู่ในวงแล้ว" — the percent rides ON the slice, so it is not
+          // repeated on a leader line outside the ring next to the legend that already prints it.
+          label: {
+            show: true,
+            position: 'inside' as const,
+            fontFamily: FONT,
+            fontSize: LABEL_SIZE,
+            fontWeight: 'bold' as const,
+            formatter: (p: { value?: number }) =>
+              total > 0 && (p.value ?? 0) / total >= MIN_INSIDE_LABEL_SHARE
+                ? pctText(p.value ?? 0, total)
+                : '',
+          },
+          labelLine: { show: false },
+          data: data.map((d, i) => ({
+            name: d.name,
+            value: d.value,
+            label: { color: readableOn(STATUS5_COLORS[i % STATUS5_COLORS.length]) },
+          })),
+        },
+      ],
+    }
+  }, [data, total, isDonut])
+
+  return (
+    <Card
+      title="1. สถานะผู้ป่วย / ผู้ใช้สารเสพติด"
+      icon={PieChart}
+      accent="s1"
+      headerTone="brand"
+      right={total > 0 ? <ChartSwitcher options={PIE_SWITCH} current={type} onChange={setType} /> : undefined}
+    >
+      {total <= 0 ? (
+        <EmptyBlock />
+      ) : (
+        <>
+          <div role="img" aria-label="สถานะผู้ป่วย / ผู้ใช้สารเสพติด แผนภูมิ">
+            <ReactECharts option={option} style={{ height: 320, width: '100%' }} notMerge lazyUpdate />
+          </div>
+          <ul className="mt-4 space-y-2">
+            {data.map((d, i) => (
+              <li key={d.name} className="flex items-start gap-2 text-sm">
+                <span
+                  className="mt-1.5 h-3 w-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: STATUS5_COLORS[i % STATUS5_COLORS.length] }}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 font-medium text-slate-700">{d.name}</span>
+                <span className="shrink-0 whitespace-nowrap font-bold tabular-nums text-slate-800">
+                  {fmt(d.value)} ราย
+                </span>
+                <span className="w-16 shrink-0 whitespace-nowrap text-right font-bold tabular-nums text-slate-600">
+                  {pctText(d.value, total)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
+  )
+}
+
+/** Deck slide 15/16 card #2 — the SEVEN การประเมินกลุ่มผู้ป่วย groups, short labels, all rows on
+ *  screen at once (see the height note in CategoryBars). */
+function PatientGroup7Card({ data }: { data: CategoryCount[] }) {
+  const [type, setType] = useChartType('s1-patient-group7', 'hbar', ['hbar', 'bar'])
+  const total = useMemo(() => sumValues(data), [data])
+  return (
+    <Card
+      title="2. จำแนกประเภทผู้ป่วย (7 กลุ่ม)"
+      icon={Users}
+      accent="s1"
+      headerTone="brand"
+      right={total > 0 ? <ChartSwitcher options={BAR_SWITCH} current={type} onChange={setType} /> : undefined}
+    >
+      <CategoryBars
+        data={data}
+        total={total}
+        orientation={type === 'bar' ? 'bar' : 'hbar'}
+        colors={GROUP7_COLORS}
+        maxLabelChars={type === 'bar' ? 11 : 18}
+        ariaLabel="จำแนกประเภทผู้ป่วย 7 กลุ่ม แผนภูมิแท่ง"
+        height={type === 'bar' ? 420 : undefined}
+      />
+    </Card>
+  )
+}
+
+/** Deck slide 18 — ช่วงอายุ as ONE combined series, deliberately NOT split by ชาย/หญิง
+ *  ("ไม่ต้องแยก ชาย หญิง มานะ ทำแบบ ภาพรวมเลย"). New widget id: the old s1-age-gender belonged to
+ *  a two-series chart whose persisted 'stacked' choice means nothing here. */
+function AgeBandCard({ data }: { data: CategoryCount[] }) {
+  const [type, setType] = useChartType('s1-age', 'bar', ['bar', 'hbar'])
+  const total = useMemo(() => sumValues(data), [data])
+  const ageColors = useMemo(() => AGE_BANDS.map((b) => b.color), [])
+  return (
+    <Card
+      title="ช่วงอายุ ผู้ก่อเหตุ"
+      icon={CalendarDays}
+      accent="s1"
+      headerTone="brand"
+      right={total > 0 ? <ChartSwitcher options={BAR_SWITCH} current={type} onChange={setType} /> : undefined}
+    >
+      <CategoryBars
+        data={data}
+        total={total}
+        orientation={type === 'hbar' ? 'hbar' : 'bar'}
+        colors={ageColors}
+        maxLabelChars={type === 'hbar' ? 14 : 9}
+        ariaLabel="ช่วงอายุ ผู้ก่อเหตุ แผนภูมิแท่ง"
+        height={type === 'hbar' ? undefined : 360}
+      />
+    </Card>
+  )
+}
+
+/** One titled block inside the suicide module. Plain h4 + chart — the module owns the one card. */
+function SubBlock({
+  title,
+  icon: Icon,
+  children,
+  className = '',
+}: {
+  title: string
+  icon: LucideIcon
+  children: ReactNode
+  /** Grid placement override — the odd fifth block spans both columns so `lg` has no empty cell. */
+  className?: string
+}) {
+  return (
+    <div className={`flex min-w-0 flex-col rounded-2xl border border-slate-100 bg-white p-4 ${className}`}>
+      <h4 className="mb-2 flex items-center gap-2 text-base font-bold text-slate-800">
+        <Icon size={18} strokeWidth={2.25} className="shrink-0 text-s2-700" aria-hidden />
+        {title}
+      </h4>
+      {children}
+    </div>
+  )
+}
 
 export default function SocialListeningSection({
   rows,
@@ -131,7 +507,7 @@ export default function SocialListeningSection({
 
   // SPEC 3.5: "so the lag is visible" is about the whole sheet's coverage, not the current
   // filter/zone selection — a filtered-out newest month would silently hide the very lag this
-  // header exists to surface. Read the full, unfiltered ชีต2 rows straight from the shared
+  // header exists to surface. Read the full, unfiltered rows straight from the shared
   // SheetDataProvider (every page that renders this section sits under it, SPEC 5.1) rather than
   // deriving it from the (possibly filtered/zone-scoped) `rows` prop.
   const { sl: allSl } = useSheetData()
@@ -178,49 +554,60 @@ export default function SocialListeningSection({
 
   const mapData = useMemo(() => provinceCounts(rows), [rows])
   const topProvinces = useMemo(() => topN(rows, (r) => r.province, 10), [rows])
-  const patientGroups = useMemo(
-    () => countBy(rows, (r) => r.patientGroup, CATEGORY_ORDERS.patientGroup),
-    [rows],
-  )
-  const diagnosis = useMemo(() => psychiatricDiagnosisCounts(rows), [rows])
-  const impact = useMemo(() => impactByPatientGroup(rows), [rows])
+
+  // Deck slides 15-18 — the restructured breakdowns.
+  const patientStatus = useMemo(() => patientStatusCounts(rows), [rows])
+  const patientGroup7 = useMemo(() => patientGroup7Counts(rows), [rows])
+  const impact = useMemo(() => impactByGroup7(rows), [rows])
   const gender = useMemo(() => genderSplit(rows), [rows])
-  const ageGender = useMemo(() => ageBandByGender(rows), [rows])
-  const ageGenderCategories = useMemo(() => AGE_BANDS.map((b) => b.label), [])
-  const ageGenderSeries = useMemo(
-    () => [
-      { name: 'ชาย', data: ageGender.map((r) => r.male), color: PALETTE.gender.male },
-      { name: 'หญิง', data: ageGender.map((r) => r.female), color: PALETTE.gender.female },
-    ],
-    [ageGender],
-  )
-  const patientClass = useMemo(
-    () => countBy(rows, (r) => r.patientClass, CATEGORY_ORDERS.patientClass),
-    [rows],
-  )
-  const treatmentHistory = useMemo(
-    () => countBy(rows, (r) => r.treatmentHistory, CATEGORY_ORDERS.treatmentHistory),
-    [rows],
-  )
-  const assistance = useMemo(() => countBy(rows, (r) => r.assistance, ASSISTANCE_ORDER), [rows])
+  const ageBands = useMemo(() => ageBandCounts(rows), [rows])
 
   const suicideRows = useMemo(() => suicideSubset(rows), [rows])
   const suicideOutcome = useMemo(
     () => countBy(suicideRows, (r) => r.suicide, CATEGORY_ORDERS.suicide),
     [suicideRows],
   )
-  const suicideLocation = useMemo(() => topN(suicideRows, (r) => r.suicideLocation, 10), [suicideRows])
-  const suicideGender = useMemo(() => genderSplit(suicideRows), [suicideRows])
-  const suicideAgeSplit = useMemo(
-    () => countBy(suicideRows, (r) => r.suicideAgeGroup, SUICIDE_AGE_ORDER).map((c) => ({ label: c.name, value: c.value })),
+  // Deck slide 20 shrinks the location chart from 10 rows to SUICIDE_TOP_N, matching cause and method.
+  const suicideLocation = useMemo(
+    () => topN(suicideRows, (r) => r.suicideLocation, SUICIDE_TOP_N),
     [suicideRows],
   )
-  const suicideCause = useMemo(() => topN(suicideRows, (r) => r.suicideCause, 5), [suicideRows])
-  const suicideMethod = useMemo(() => topN(suicideRows, (r) => r.suicideMethod, 5), [suicideRows])
+  const suicideGender = useMemo(() => genderSplit(suicideRows), [suicideRows])
+  // CATEGORY_ORDERS.suicideAgeGroup, not a local array: normalize.ts rewrites the raw under-18
+  // value to 'ต่ำกว่า 18 ปี' (deck slide 20 wants the 'ปี'), and a stale local order missing that
+  // spelling would push every under-18 row into an appended extra category instead.
+  const suicideAgeSplit = useMemo(
+    () =>
+      countBy(suicideRows, (r) => r.suicideAgeGroup, CATEGORY_ORDERS.suicideAgeGroup).map((c) => ({
+        label: c.name,
+        value: c.value,
+      })),
+    [suicideRows],
+  )
+  const suicideCause = useMemo(
+    () => topN(suicideRows, (r) => r.suicideCause, SUICIDE_TOP_N),
+    [suicideRows],
+  )
+  const suicideMethod = useMemo(
+    () => topN(suicideRows, (r) => r.suicideMethod, SUICIDE_TOP_N),
+    [suicideRows],
+  )
 
-  // UX-13 — every top-N chart above hides part of its distribution, so its data table and textual
-  // summary need the full total as the percentage base.
+  // Deck slide 20's three ranked blocks. Each heading states the number of bars actually drawn —
+  // topN() returns FEWER than SUICIDE_TOP_N whenever the filtered subset has fewer distinct values
+  // (routine on ZonePage or under a single-month filter), and "5 อันดับสูงสุด" over 2 bars lies.
+  const suicideCauseTitle = topTitle('สาเหตุการฆ่าตัวตาย', suicideCause.length)
+  const suicideLocationTitle = topTitle('สถานที่เกิดเหตุ', suicideLocation.length)
+  const suicideMethodTitle = topTitle('วิธีการฆ่าตัวตาย', suicideMethod.length)
+
+  // UX-13 — every top-N chart above hides part of its distribution, so its percentages need the
+  // full total as their base, not the sum of the bars that happen to be drawn. countBy() also
+  // drops blank/'-' cells, so each of these bases is SMALLER than the module's event count (e.g.
+  // 106 causes recorded across 108 suicide events) — which is why every block prints its own base
+  // in a DenominatorNote below its chart instead of leaving the reader to assume the header's
+  // "N เหตุการณ์" is the divisor. The three bases differ; none of them may be shared.
   const provinceTotal = useMemo(() => sumValues(mapData), [mapData])
+  const suicideOutcomeTotal = useMemo(() => sumValues(suicideOutcome), [suicideOutcome])
   const suicideLocationTotal = useMemo(
     () => sumValues(countBy(suicideRows, (r) => r.suicideLocation)),
     [suicideRows],
@@ -234,7 +621,7 @@ export default function SocialListeningSection({
     [suicideRows],
   )
 
-  // Widget 20 (SPEC 6.4 item 3): zone-scoped -> one bar per province of that zone, same widget id.
+  // SPEC 6.4 item 3: zone-scoped -> one bar per province of that zone, same widget id.
   const zoneEventsData = useMemo(() => {
     if (isZoneScoped) return countBy(rows, (r) => r.province, ZONE_PROVINCES[effectiveZone as number] ?? [])
     return zoneCounts(rows)
@@ -282,9 +669,8 @@ export default function SocialListeningSection({
         )}
       </div>
 
-      {/* ---- Overview first: totals, trend, geography, records (UX-09) ---- */}
       <div className={GRID}>
-        {/* Widget 3 — KPI cards */}
+        {/* 1 — KPI severity cards (drill-down into the records below) */}
         <Span className={FULL}>
           <KpiCards
             section={1}
@@ -294,10 +680,19 @@ export default function SocialListeningSection({
           />
         </Span>
 
-        {/* Widget 4 — monthly trend */}
+        {/* 2 — the two headline infographics, side by side (deck slides 13-14) */}
+        <Span className={HALF}>
+          <RiskWarning kind="risk" data={risk} />
+        </Span>
+        <Span className={HALF}>
+          <RiskWarning kind="sign" data={warn} />
+        </Span>
+
+        {/* 3 — monthly trend */}
         <Span className={FULL}>
           <SwitchableChart
             widgetId="s1-trend"
+            headerTone="brand"
             title="แนวโน้มรายเดือน"
             subtitle={trendSubtitle}
             icon={TrendingUp}
@@ -311,13 +706,22 @@ export default function SocialListeningSection({
           />
         </Span>
 
-        {/* Widget 5 — events-per-province map (with companion Selected Area + Top 10 cards) */}
+        {/* 4 — patient status donut + 7-group bar (deck slides 15-16) */}
+        <Span className={HALF}>
+          <PatientStatusCard data={patientStatus} />
+        </Span>
+        <Span className={HALF}>
+          <PatientGroup7Card data={patientGroup7} />
+        </Span>
+
+        {/* 5 — events-per-province map (with companion Selected Area + Top 10 cards) */}
         <Span className={FULL}>
           <ThailandMap
             mode={zoneMode ? 'zone' : 'country'}
             zone={effectiveZone}
             data={mapData}
             title="จำนวนเหตุการณ์รายจังหวัด"
+            headerTone="brand"
             accent="s1"
             onProvinceClick={onProvinceClick}
             selectedProvince={selectedProvince}
@@ -329,11 +733,12 @@ export default function SocialListeningSection({
           />
         </Span>
 
-        {/* Widget 6 — top 10 provinces (rendered when the map's side cards are not shown) */}
+        {/* 5b — top 10 provinces (rendered when the map's side cards are not shown) */}
         {!showMapSideCards && (
           <Span className={HALF}>
             <SwitchableChart
               widgetId="s1-top-provinces"
+              headerTone="brand"
               title="10 อันดับจังหวัด"
               icon={MapPin}
               data={topProvinces}
@@ -347,12 +752,133 @@ export default function SocialListeningSection({
           </Span>
         )}
 
-        {/* Widget 19 — events table: the records behind every number above */}
+        {/* 5c — events by zone / (zone mode) by province */}
+        <Span className={FULL}>
+          <SwitchableChart
+            widgetId="s1-zone-events"
+            headerTone="brand"
+            title={zoneEventsTitle}
+            subtitle={zoneEventsSubtitle}
+            icon={MapIcon}
+            data={zoneEventsData}
+            defaultType="bar"
+            allowedTypes={['bar', 'hbar']}
+            accent="s1"
+            unit="เหตุการณ์"
+            categoryHeader={isZoneScoped ? 'จังหวัด' : 'เขตสุขภาพ'}
+          />
+        </Span>
+
+        {/* 6 — deaths / injured compared across the 7 groups (deck slide 17) */}
+        <Span className={FULL}>
+          <GroupImpactTable widgetId="s1-impact-group7" rows={impact} />
+        </Span>
+
+        {/* 7 — gender + age (deck slide 18) */}
+        <Span className={HALF}>
+          <GenderFigure title="เพศ" data={gender} icon={Users2} headerTone="brand" />
+        </Span>
+        <Span className={HALF}>
+          <AgeBandCard data={ageBands} />
+        </Span>
+
+        {/* 8 — the whole suicide picture in ONE framed module (deck slide 20) */}
+        <Span className={FULL}>
+          <Card
+            title="สถานการณ์การฆ่าตัวตาย"
+            subtitle={`${fmt(suicideRows.length)} เหตุการณ์ในขอบเขตฟิลเตอร์`}
+            icon={HeartPulse}
+            accent="s1"
+            headerTone="brand"
+          >
+            {suicideRows.length === 0 ? (
+              <EmptyBlock />
+            ) : (
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                <SubBlock title="ฆ่าตัวตาย สำเร็จ / ไม่สำเร็จ" icon={Activity}>
+                  <CategoryBars
+                    data={suicideOutcome}
+                    total={suicideOutcomeTotal}
+                    colors={[PALETTE.suicide.success, PALETTE.suicide.fail]}
+                    maxLabelChars={16}
+                    ariaLabel="ฆ่าตัวตาย สำเร็จ ไม่สำเร็จ แผนภูมิแท่ง"
+                  />
+                </SubBlock>
+
+                <SubBlock title="เพศและช่วงอายุ" icon={UserRound}>
+                  <GenderFigure title="เพศและช่วงอายุ" data={suicideGender} ageSplit={suicideAgeSplit} bare />
+                </SubBlock>
+
+                <SubBlock title={suicideCauseTitle} icon={AlertOctagon}>
+                  <CategoryBars
+                    data={suicideCause}
+                    total={suicideCauseTotal}
+                    maxLabelChars={16}
+                    ariaLabel={`${suicideCauseTitle} แผนภูมิแท่ง`}
+                  />
+                  {suicideCauseTotal > 0 && (
+                    <DenominatorNote className="mt-3">
+                      {`ฐาน ${fmt(suicideCauseTotal)} ราย ที่ระบุสาเหตุ`}
+                    </DenominatorNote>
+                  )}
+                </SubBlock>
+
+                <SubBlock title={suicideLocationTitle} icon={MapPinned}>
+                  <CategoryBars
+                    data={suicideLocation}
+                    total={suicideLocationTotal}
+                    maxLabelChars={16}
+                    ariaLabel={`${suicideLocationTitle} แผนภูมิแท่ง`}
+                  />
+                  {suicideLocationTotal > 0 && (
+                    <DenominatorNote className="mt-3">
+                      {`ฐาน ${fmt(suicideLocationTotal)} ราย ที่ระบุสถานที่เกิดเหตุ`}
+                    </DenominatorNote>
+                  )}
+                </SubBlock>
+
+                <SubBlock title={suicideMethodTitle} icon={ListChecks} className="lg:col-span-2">
+                  <CategoryBars
+                    data={suicideMethod}
+                    total={suicideMethodTotal}
+                    maxLabelChars={16}
+                    ariaLabel={`${suicideMethodTitle} แผนภูมิแท่ง`}
+                  />
+                  {suicideMethodTotal > 0 && (
+                    <DenominatorNote className="mt-3">
+                      {`ฐาน ${fmt(suicideMethodTotal)} ราย ที่ระบุวิธีการ`}
+                    </DenominatorNote>
+                  )}
+                </SubBlock>
+              </div>
+            )}
+
+            {/* Deck slide 20's reference art carries a helpline strip; deliberately quiet, so it
+                supports the reader without competing with the data above it. */}
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
+              <span className="flex items-center gap-2 font-bold text-slate-800">
+                <LifeBuoy size={18} strokeWidth={2.25} className="text-s2-700" aria-hidden />
+                ขอความช่วยเหลือได้ที่
+              </span>
+              <span>
+                สายด่วนสุขภาพจิต <strong className="tabular-nums">1323</strong>
+              </span>
+              <span>
+                สมาคมสะมาริตันส์แห่งประเทศไทย <strong className="tabular-nums">02-113-6789</strong>
+              </span>
+            </div>
+          </Card>
+        </Span>
+
+        {/* 9 — events table: the records behind every number above */}
         <Span className={FULL}>
           <EventsTable
             section={1}
             sl={rows}
             id="s1-events"
+            // Deck slide 9: every card on the page carries the filled title band, and Section 2's
+            // identically-titled ตารางเหตุการณ์ already does.
+            headerTone="brand"
             severityFilter={severityFilter}
             onClearSeverityFilter={() => setSeverityFilter(null)}
             coverage={coverage}
@@ -361,228 +887,6 @@ export default function SocialListeningSection({
           />
         </Span>
       </div>
-
-      {/* ---- Then the detail, collapsible and open by default (UX-09) ---- */}
-      <AnalysisGroup
-        title="การวิเคราะห์เชิงลึก"
-        subtitle="รายละเอียดของเหตุการณ์ตามขอบเขตที่กรองไว้"
-        icon={Layers}
-        accent="s1"
-      >
-        <div className={GRID}>
-          {/* Widget 1-2 — risk factor / warning sign infographics */}
-          <Span className={HALF}>
-            <RiskWarning kind="risk" data={risk} />
-          </Span>
-          <Span className={HALF}>
-            <RiskWarning kind="sign" data={warn} />
-          </Span>
-
-          {/* Widget 7 — patient groups (5) */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-patient-groups"
-              title="จำนวนผู้ป่วย 5 กลุ่ม"
-              subtitle="ผู้ป่วยจิตเวช/อื่นๆ"
-              icon={Users}
-              data={patientGroups}
-              defaultType="hbar"
-              allowedTypes={['hbar', 'bar']}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader="กลุ่มผู้ป่วย"
-            />
-          </Span>
-
-          {/* Widget 8 — psychiatric diagnosis (3) */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-diagnosis"
-              title="กลุ่มผู้ป่วยจิตเวช 3 ประเภท"
-              subtitle="การวินิจฉัยโรค"
-              icon={Brain}
-              data={diagnosis}
-              defaultType="pie"
-              allowedTypes={['pie', 'donut', 'bar']}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader="การวินิจฉัย"
-            />
-          </Span>
-
-          {/* Widget 9 — deaths / injured by patient group */}
-          <Span className={HALF}>
-            <GroupImpactTable widgetId="s1-impact" rows={impact} />
-          </Span>
-
-          {/* Widget 10 — gender */}
-          <Span className={HALF}>
-            <GenderFigure title="เพศ" data={gender} icon={Users2} />
-          </Span>
-
-          {/* Widget 11 — age band x gender */}
-          <Span className={HALF}>
-            <MultiSeriesChart
-              widgetId="s1-age-gender"
-              title="ช่วงวัย × เพศ"
-              subtitle="6 ช่วงวัย"
-              icon={CalendarDays}
-              categories={ageGenderCategories}
-              series={ageGenderSeries}
-              defaultType="bar"
-              allowedTypes={['bar', 'stacked', 'hbar']}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader="ช่วงวัย"
-            />
-          </Span>
-
-          {/* Widget 12 — patient class เก่า/ใหม่ */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-patient-class"
-              title="ประเภทผู้ป่วย เก่า/ใหม่"
-              subtitle="การจำแนกผู้ป่วย"
-              icon={UserCheck}
-              data={patientClass}
-              defaultType="pie"
-              allowedTypes={['pie', 'donut', 'bar']}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader="ประเภทผู้ป่วย"
-            />
-          </Span>
-
-          {/* Widget 13 — treatment history */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-treatment-history"
-              title="ประวัติการรักษา"
-              icon={Stethoscope}
-              data={treatmentHistory}
-              defaultType="hbar"
-              allowedTypes={['hbar', 'bar']}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader="ประวัติการรักษา"
-            />
-          </Span>
-
-          {/* Suicide sub-section (widgets 14-18) */}
-          <Span className={FULL}>
-            <h3 className="flex items-center gap-2 text-cardTitle font-bold text-slate-700">
-              <Activity className="text-s1-600" size={22} strokeWidth={2.25} />
-              การฆ่าตัวตาย
-              <span className="text-sm font-medium text-slate-500">({suicideRows.length} เหตุการณ์)</span>
-            </h3>
-          </Span>
-
-          {/* Widget 14 — suicide outcome */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-suicide-outcome"
-              title="ฆ่าตัวตาย: สำเร็จ/ไม่สำเร็จ"
-              icon={Activity}
-              data={suicideOutcome}
-              defaultType="pie"
-              allowedTypes={['pie', 'donut', 'bar']}
-              palette={[PALETTE.suicide.success, PALETTE.suicide.fail]}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader="ผลลัพธ์"
-            />
-          </Span>
-
-          {/* Widget 15 — suicide location top 10 */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-suicide-location"
-              title="ฆ่าตัวตาย: สถานที่ 10 อันดับ"
-              icon={MapPinned}
-              data={suicideLocation}
-              defaultType="hbar"
-              allowedTypes={['hbar', 'bar']}
-              accent="s1"
-              total={suicideLocationTotal}
-              unit="เหตุการณ์"
-              categoryHeader="สถานที่"
-            />
-          </Span>
-
-          {/* Widget 16 — suicide gender + age split */}
-          <Span className={HALF}>
-            <GenderFigure
-              title="ฆ่าตัวตาย: เพศและช่วงวัย (<18 / ≥18 ปี)"
-              data={suicideGender}
-              icon={UserRound}
-              ageSplit={suicideAgeSplit}
-            />
-          </Span>
-
-          {/* Widget 17 — suicide cause top 5 */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-suicide-cause"
-              title="ฆ่าตัวตาย: สาเหตุ 5 อันดับ"
-              icon={AlertOctagon}
-              data={suicideCause}
-              defaultType="hbar"
-              allowedTypes={['hbar', 'bar']}
-              accent="s1"
-              total={suicideCauseTotal}
-              unit="เหตุการณ์"
-              categoryHeader="สาเหตุ"
-            />
-          </Span>
-
-          {/* Widget 18 — suicide method top 5 */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-suicide-method"
-              title="ฆ่าตัวตาย: วิธี 5 อันดับ"
-              icon={ListChecks}
-              data={suicideMethod}
-              defaultType="hbar"
-              allowedTypes={['hbar', 'bar']}
-              accent="s1"
-              total={suicideMethodTotal}
-              unit="เหตุการณ์"
-              categoryHeader="วิธี"
-            />
-          </Span>
-
-          {/* Widget 20 — events by zone / (zone mode) by province */}
-          <Span className={FULL}>
-            <SwitchableChart
-              widgetId="s1-zone-events"
-              title={zoneEventsTitle}
-              subtitle={zoneEventsSubtitle}
-              icon={MapIcon}
-              data={zoneEventsData}
-              defaultType="bar"
-              allowedTypes={['bar', 'hbar']}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader={isZoneScoped ? 'จังหวัด' : 'เขตสุขภาพ'}
-            />
-          </Span>
-
-          {/* Widget 21 — assistance given to the perpetrator */}
-          <Span className={HALF}>
-            <SwitchableChart
-              widgetId="s1-assistance"
-              title="การช่วยเหลือผู้ก่อเหตุ"
-              icon={HandHeart}
-              data={assistance}
-              defaultType="hbar"
-              allowedTypes={['hbar', 'bar']}
-              accent="s1"
-              unit="เหตุการณ์"
-              categoryHeader="การช่วยเหลือ"
-            />
-          </Span>
-        </div>
-      </AnalysisGroup>
     </section>
   )
 }

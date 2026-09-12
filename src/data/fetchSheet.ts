@@ -18,8 +18,15 @@ export function fetchCsv(gid: number): Promise<string[][]> {
 }
 
 /**
- * Fetches ชีต2 and the wide tab in parallel. The wide tab falls back to GID_WIDE_FALLBACK
- * (byte-identical CSV, SPEC 3.3) if the primary gid fails.
+ * Fetches ชีต2 and the wide tab in parallel, falling back to GID_WIDE_FALLBACK if the primary
+ * gid fails.
+ *
+ * The fallback is a DEGRADED source, not an equivalent one: SPEC 3.3's "byte-identical" claim is
+ * stale — that gid still serves the OLD 84-column schema (see GID_WIDE_FALLBACK in config/sheet.ts
+ * and docs/BUILD_NOTES.md). On that layout col 14 collapses to 2 values and the risk factor
+ * 'มีการใช้สารเสพติดร่วมด้วย' has no column at all, so it counts 0 and parseSheet2 console.warns.
+ * Note GID_SHEET2 === GID_WIDE today, so the branch below means one failed fetch degrades BOTH
+ * datasets, not just Section 2.
  */
 export async function fetchAllData(): Promise<{ sheet2: string[][]; wide: string[][] }> {
   if (GID_SHEET2 === GID_WIDE) {

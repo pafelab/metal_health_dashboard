@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Enhancement & Layout Redesign Specifications - Social Listening 2569</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1e3a8a;
+      --primary-light: #eff6ff;
+      --secondary: #0284c7;
+      --slate-800: #1e293b;
+      --slate-600: #475569;
+      --slate-200: #e2e8f0;
+      --slate-100: #f1f5f9;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --success: #10b981;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--slate-800);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: white;
+      padding: 2rem;
+      border-radius: 1rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    header h1 {
+      font-size: 1.875rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    header p {
+      font-size: 1rem;
+      opacity: 0.9;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--slate-200);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 1rem;
+      border-bottom: 2px solid var(--primary-light);
+      padding-bottom: 0.5rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--slate-200);
+      padding: 0.75rem 1rem;
+      text-align: left;
+    }
+    th {
+      background-color: var(--slate-100);
+      font-weight: 600;
+      color: var(--slate-800);
+    }
+    tr:nth-child(even) {
+      background-color: #fcfcfd;
+    }
+    pre.wireframe {
+      background-color: #0f172a;
+      color: #38bdf8;
+      padding: 1.25rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      margin: 1rem 0;
+    }
+    ul, ol {
+      padding-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+    li {
+      margin-bottom: 0.5rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .badge-danger { background-color: #fee2e2; color: #b91c1c; }
+    .badge-warning { background-color: #fef3c7; color: #b45309; }
+    .badge-success { background-color: #d1fae5; color: #047857; }
+    .checklist {
+      list-style-type: none;
+      padding-left: 0;
+    }
+    .checklist li {
+      position: relative;
+      padding-left: 2rem;
+      margin-bottom: 0.75rem;
+    }
+    .checklist li::before {
+      content: "❌";
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 768px) {
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>System Enhancement & Layout Redesign Specifications</h1>
+      <p><strong>Project:</strong> Social Media Monitoring & Surveillance System (Social Listening 2569) - Department of Mental Health[cite: 1]</p>
+      <p><strong>Reference:</strong> Review Document แก้งับ.pdf[cite: 1] vs. Production Dashboard (https://metalhealthdashboard.vercel.app/#/dashboard)</p>
+    </header>
+
+    <!-- Section 1: Master Architecture Transformation -->
+    <section class="card">
+      <h2 class="card-title">1. Master Layout Architecture Transformation</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 25%;">Component</th>
+            <th style="width: 35%;">Current State</th>
+            <th style="width: 40%;">Required Specification</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Main Viewport & Sidebar</strong></td>
+            <td>Left sidebar navigation (Dashboard, Regional Status, Guidelines, Contacts) consumes screen width[cite: 1].</td>
+            <td><strong>Remove sidebar entirely</strong>[cite: 1]. Convert into a full-width container (100% or 1440px/1600px centered) to maximize data visualization area[cite: 1].</td>
+          </tr>
+          <tr>
+            <td><strong>Visual Scaffolding</strong></td>
+            <td>Scattered cards with ambiguous section dividers.</td>
+            <td>Implement a <strong>Card-Based Architecture</strong>. Every module must feature clear borders, rounded corners, and soft navy/slate header accents to group content visually[cite: 1].</td>
+          </tr>
+          <tr>
+            <td><strong>Filtering Behavior</strong></td>
+            <td>Manual filter trigger requiring "Apply Filter" and "Clear All Filters" button clicks[cite: 1].</td>
+            <td>Convert to a <strong>Reactive Auto-Filter toolbar</strong>[cite: 1]. Dropdown changes must update the dashboard state and trigger re-renders instantly without confirmation buttons[cite: 1].</td>
+          </tr>
+          <tr>
+            <td><strong>Tooltip Interactions</strong></td>
+            <td>Requires clicking cards or legends to view descriptions.</td>
+            <td>Switch to <strong>Instant Hover Tooltips</strong> across charts, choropleth maps, and metric badges[cite: 1].</td>
+          </tr>
+          <tr>
+            <td><strong>Visual Hierarchy</strong></td>
+            <td>General hazards mixed with mental health data; regional scoring omitted.</td>
+            <td>Strictly align sequence to Slides 1–8: Header &rarr; Overview KPIs &rarr; Geographic Distribution &rarr; Patient Classifications &rarr; Demographics &rarr; Suicide Module &rarr; Tables &rarr; Secondary Hazards &rarr; Regional Performance[cite: 1].</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Section 2: Wireframe Flow -->
+    <section class="card">
+      <h2 class="card-title">2. Wireframe Flow Hierarchy (Slides 1 – 8)</h2>
+      <pre class="wireframe">
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ [DMH LOGO] Social Listening 2569 | Mental Health Service Division  [Reset] [Reload]    │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ Reactive Filter Toolbar: Year | Month | Health Region | Province | Hazard Type (No EN) │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 1] Overview Metrics & Key Risk Factors / Warning Signs                        │
+│ ┌───────────────────┐ ┌───────────────┐ ┌───────────────┐ ┌──────────────────────────┐ │
+│ │ Total Events      │ │ Black (1 hr)  │ │ Red (24 hrs)  │ │ Yellow (72 hrs)          │ │
+│ │ 440 Events        │ │ 0 (0.0%)      │ │ 4 (0.9%)      │ │ 436 (99.1%)              │ │
+│ └───────────────────┘ └───────────────┘ └───────────────┘ └──────────────────────────┘ │
+│ ┌─────────────────────────────────────────┐ ┌────────────────────────────────────────┐ │
+│ │ [Card] 4 Risk Factors in Violent Cases  │ │ [Card] 5 Early Warning Signs           │ │
+│ │ (Highlighted Card, Adjusted Denominator)│ │ (Descriptive Icons, Multi-symptom Note)│ │
+│ └─────────────────────────────────────────┘ └────────────────────────────────────────┘ │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 2] Temporal Trends & Geospatial Distribution                                  │
+│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+│ │ Monthly Trend Analysis (Area/Line Chart: Oct 2025 - Jun 2026)                      │ │
+│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+│ ┌───────────────────────────────────────────────┬────────────────────────────────────┐ │
+│ │ Thailand Choropleth Map (5 Levels: ≥61, 46-60)│ Top 10 Provinces by Event Volume   │ │
+│ └───────────────────────────────────────────────┴────────────────────────────────────┘ │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 3] Patient Status & Diagnostic Breakdown                                      │
+│ ┌───────────────────────────────────────────────┬────────────────────────────────────┐ │
+│ │ 1. Patient Status / Drug User Status (Donut)  │ 2. Patient Classification (7 Groups│ │
+│ │ (5 Core Groups with Count and %)              │ (Horizontal Bar, No Scroll/Truncate│ │
+│ └───────────────────────────────────────────────┴────────────────────────────────────┘ │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 4] Casualties & Offender Demographics                                         │
+│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+│ │ Fatalities & Injuries by Patient Group (Grouped Column Chart across 7 Groups)      │ │
+│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+│ ┌───────────────────────────────────────────────┬────────────────────────────────────┐ │
+│ │ Gender Ratio (Male/Female with Icons)         │ Offender Age Groups (Aggregated Bar│ │
+│ └───────────────────────────────────────────────┴────────────────────────────────────┘ │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 5] Suicide Surveillance Analytics Module                                      │
+│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+│ │ [Main Card: Suicide Surveillance Overview]                                         │ │
+│ │ 1. Completed vs. Attempted Rate | 2. Gender & Age Split (&lt;18 / ≥18 Years)          │ │
+│ │ 3. Top 5 Causes | 4. Top 5 Incident Locations | 5. Top 5 Suicide Methods           │ │
+│ │ [Support Banner: Mental Health Hotline 1323 | Samaritans 02-109-7995]              │ │
+│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 6] Mental Health Events Data Table                                            │
+│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+│ │ [Search Query/Province] No. | Month/Yr | Province | Headline | Link | Level | Report │ │
+│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 7] Other Hazards Surveillance (6 Categories)                                  │
+│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+│ │ [Major Header: Other Hazards Surveillance (6 Categories)]                          │ │
+│ │ 4 KPI Badges: [Officer Injured] [Public Injured] [Officer Dead] [Public Dead]       │ │
+│ │ Hazard Type Bar Chart | Other Hazards Map (Color scale: ≥12, 9-11, 6-8, 3-5, 1-2)    │ │
+│ │ Other Hazards Event Table (Search, Color Tier, Reporting Compliance Status)        │ │
+│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ [SECTION 8] Reporting Performance Evaluation for 13 Health Regions                     │
+│ ┌────────────────────────────────────────────────────────────────────────────────────┐ │
+│ │ 1. Scoring Tier Legend (5 Levels: ≥90%->0.5 to 70-74.99%->0.1; Strip Word Labels)  │ │
+│ │ 2. Regional Performance Summary Grid (Health Regions 1 to 13: % & Score Badge)     │ │
+│ └────────────────────────────────────────────────────────────────────────────────────┘ │
+      </pre>
+    </section>
+
+    <!-- Section 3: Detailed Specifications -->
+    <section class="card">
+      <h2 class="card-title">3. Detailed Functional & Section Specifications</h2>
+
+      <h3>Header Bar & Auto-Filter Toolbar</h3>
+      <ul>
+        <li>Insert the official <strong>Department of Mental Health logo</strong> directly adjacent to the primary headline[cite: 1].</li>
+        <li>Rename the dashboard title from "Dashboard" to <strong>"Social Listening 2569"</strong>[cite: 1].</li>
+        <li>Add the subheader: <strong>"กองบริหารระบบบริการสุขภาพจิต"</strong> (Mental Health Service System Administration Division)[cite: 1].</li>
+        <li>Display <code>[Reset Chart Layout]</code> and <code>[Reload Data]</code> action triggers alongside the last synchronization timestamp[cite: 1].</li>
+        <li>Strip out all "Apply Filter" and "Clear Filters" action buttons; rebind dropdown select inputs to mutate state reactively[cite: 1].</li>
+        <li>Remove all English secondary text in dropdown lists (e.g., retain Thai month abbreviations <code>ม.ค.</code> – <code>ธ.ค.</code> and strip out "Jan", "Feb", etc.)[cite: 1].</li>
+        <li>Standardize regional labels to <strong>"เขตสุขภาพที่ 1"</strong> through <strong>"เขตสุขภาพที่ 13"</strong> (replace truncated terms like "เขต 1")[cite: 1].</li>
+      </ul>
+
+      <h3>Section 1: Critical SLAs & 4 Risk Factors / 5 Warning Signs</h3>
+      <ul>
+        <li><strong>Top KPI Row (SLA Cards):</strong> Display four primary metrics: Total Events (440), Black Tier (0 - 1 hr response), Red Tier (4 - 24 hr response), Yellow Tier (436 - 72 hr response) with hover descriptions[cite: 1].</li>
+        <li><strong>4 Key Risk Factors of Violent Patients:</strong>
+          <ul>
+            <li>Update header title to <strong>"4 ปัจจัยหลักของผู้ป่วยที่ก่อความรุนแรง"</strong> (strip the term "รายเก่า" / previous cases)[cite: 1].</li>
+            <li>Encase within a prominent, high-contrast container with an embedded summary banner: <em>"จากเหตุการณ์ทั้งหมด XXX เหตุการณ์ มีปัจจัยเสี่ยง XXX เหตุการณ์ (XX.X%)"</em>[cite: 1].</li>
+            <li>Display the 4 factors: 1. Missed appointment/medication default, 2. Relapsed drug use, 3. Concurrent substance abuse, 4. Others[cite: 1].</li>
+            <li><strong>Calculation Rule:</strong> The denominator must solely aggregate diagnosed psychiatric patients (new/existing) and substance users (new/existing)[cite: 1]. <em>Exclude the non-psychiatric / non-substance user group from the denominator[cite: 1].</em></li>
+          </ul>
+        </li>
+        <li><strong>5 Early Warning Signs:</strong>
+          <ul>
+            <li>Remove the subheader phrase "เฝ้าระวังกลุ่มเสี่ยงในชุมชน"[cite: 1].</li>
+            <li>Embed a centered summary box: <em>"จากเหตุการณ์ทั้งหมด XXX เหตุการณ์ มีสัญญาณเตือน XXX เหตุการณ์ (XX.X%)"</em>[cite: 1].</li>
+            <li><strong>Calculation Rule:</strong> Denominator must be based on total events (all individuals can exhibit symptoms)[cite: 1].</li>
+            <li>Render symptom items (irritability/rage, paranoia, insomnia, talking to self, pacing) with visual avatar icons[cite: 1].</li>
+            <li>Remove category percentage labels and add footnote: <em>"หมายเหตุ: 1 เหตุการณ์สามารถพบสัญญาณเตือนมากกว่า 1 สัญญาณ"</em>[cite: 1].</li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>Section 2: Monthly Trends & Geospatial Distribution</h3>
+      <ul>
+        <li><strong>Monthly Trends:</strong> Render an Area/Line Chart covering October 2025 to June 2026[cite: 1].</li>
+        <li><strong>Thailand Choropleth Map:</strong> Standardize the five color thresholds: &ge; 61, 46 - 60, 31 - 45, 16 - 30, and 1 - 15 events[cite: 1]. Hovering over a province must trigger an instant tooltip with provincial metrics[cite: 1].</li>
+        <li><strong>Top 10 Provinces:</strong> Display as a cleanly formatted horizontal bar chart sorted descending[cite: 1].</li>
+      </ul>
+
+      <h3>Section 3: Patient Status & Diagnostic Breakdown</h3>
+      <div class="grid-2">
+        <div>
+          <h4>1. Patient Status / Drug User Status</h4>
+          <p>Render as a Donut Chart showing core 5 groups with counts in the legend and percentages inside the slices[cite: 1]:</p>
+          <ol>
+            <li>Existing Psychiatric Patient (ผู้ป่วยจิตเวชรายเก่า)[cite: 1]</li>
+            <li>New Psychiatric Patient (ผู้ป่วยจิตเวชรายใหม่)[cite: 1]</li>
+            <li>Existing Substance User (ผู้ใช้สารเสพติดรายเก่า)[cite: 1]</li>
+            <li>New Substance User (ผู้ใช้สารเสพติดรายใหม่)[cite: 1]</li>
+            <li>Non-psychiatric / Non-substance User (ไม่ใช่ผู้ป่วยจิตเวช/ไม่ใช่ผู้ใช้สารเสพติด)[cite: 1]</li>
+          </ol>
+        </div>
+        <div>
+          <h4>2. Patient Classification (7 In-depth Groups)</h4>
+          <p>Render as a Horizontal Bar Chart. Compact label names to prevent text truncation and eliminate horizontal scrollbars[cite: 1]:</p>
+          <ol>
+            <li>Psychiatric Patient (ผู้ป่วยจิตเวช)[cite: 1]</li>
+            <li>Psychiatric with Substance Use (ผู้ป่วยจิตเวชใช้สารเสพติด)[cite: 1]</li>
+            <li>Substance-Induced Psychiatric Patient (ผู้ป่วยจิตเวชจากการใช้สารเสพติด)[cite: 1]</li>
+            <li>SMI-V Patient (ผู้ป่วย SMI-V)[cite: 1]</li>
+            <li>Documented Substance Abuse History (มีประวัติใช้สารเสพติด)[cite: 1]</li>
+            <li>Inconclusive Data (ข้อมูลไม่เพียงพอต่อการตรวจสอบ)[cite: 1]</li>
+            <li>No Documented History (ไม่พบประวัติ)[cite: 1]</li>
+          </ol>
+        </div>
+      </div>
+      <p style="margin-top: 0.5rem; color: var(--danger);">* Remove the redundant "5 Patient Groups" block and delete all "Total 440 events" text footers[cite: 1].</p>
+
+      <h3 style="margin-top: 1rem;">Section 4: Casualties & Offender Demographics</h3>
+      <ul>
+        <li><strong>Casualties by Patient Group:</strong> Update title to <strong>"ผู้เสียชีวิตและบาดเจ็บ จำแนกตามกลุ่มผู้ป่วย"</strong>[cite: 1]. Replace the tabular view with a <strong>Grouped Column Chart</strong> comparing Fatalities vs. Injuries across the 7 diagnostic groups[cite: 1]. Display values and % labels directly above bars and strip out lengthy explanatory footnotes[cite: 1].</li>
+        <li><strong>Gender Ratio:</strong> Present as a concise donut card with male/female icons; remove the phrase "of 440 cases"[cite: 1].</li>
+        <li><strong>Offender Age Groups:</strong> Rename to <strong>"ช่วงอายุ ผู้ก่อเหตุ"</strong>[cite: 1]. Display as a unified horizontal bar chart across all age tiers (&lt;18, 18-25, 26-45, 46-60, &gt;60, Unspecified); do not split bars by gender[cite: 1].</li>
+        <li>Strip out the "Treatment History" chart and "Assistance Given to Offender" chart entirely[cite: 1].</li>
+      </ul>
+
+      <h3>Section 5: Suicide Surveillance Analytics Module</h3>
+      <p>Consolidate all suicide-related charts into a unified container labeled <strong>"สถานการณ์การฆ่าตัวตาย"</strong>[cite: 1]:</p>
+      <ol>
+        <li><strong>Completed vs. Attempted Ratio:</strong> Donut/radial breakdown (Completed: 70 cases [78.7%], Attempted: 19 cases [21.3%])[cite: 1].</li>
+        <li><strong>Gender & Age Proportions:</strong> Gender split and age tiers categorized into &lt;18 Years and &ge;18 Years (affix the label "ปี" / "Years" uniformly)[cite: 1].</li>
+        <li><strong>Top 5 Suicide Causes:</strong> Horizontal bar chart showing leading causes[cite: 1].</li>
+        <li><strong>Top 5 Incident Locations:</strong> Reduce former Top 10 view down to the top 5 locations (Residence, River/Waterway, Dormitory/Condo, Public Area/Others, Vehicle)[cite: 1].</li>
+        <li><strong>Top 5 Suicide Methods:</strong> Bar chart identifying primary means[cite: 1].</li>
+      </ol>
+      <p>Include an emergency support footer banner highlighting: Mental Health Hotline 1323 and Samaritans of Thailand 02-109-7995[cite: 1].</p>
+
+      <h3>Section 6: Mental Health Event Data Table</h3>
+      <ul>
+        <li>Display full width with an integrated search filter (by headline keywords or province)[cite: 1].</li>
+        <li>Columns: Index, Month/Year, Health Region, Province, Headline, External Source Link, Urgency Badge (Black, Red, Yellow), Reporting Compliance[cite: 1].</li>
+      </ul>
+
+      <h3>Section 7: Other Hazards Surveillance (6 Categories)</h3>
+      <ul>
+        <li>Group in a separate section under the primary header: <strong>"ข้อมูลภัยอื่นๆ (6 หมวดหมู่)"</strong>[cite: 1].</li>
+        <li><strong>4 Casualty Metric Cards:</strong> Officers Injured, Public Injured, Officers Killed, Public Killed (Counts and %)[cite: 1].</li>
+        <li><strong>Hazard Type Bar Chart & Hazard Map:</strong> Render secondary hazard distribution map using 5 density tiers: &ge; 12, 9 - 11, 6 - 8, 3 - 5, and 1 - 2 incidents with instant hover tooltips[cite: 1].</li>
+        <li><strong>Other Hazards Event Table:</strong> Positioned at bottom with search input, severity indicator, and compliance reporting status[cite: 1].</li>
+      </ul>
+
+      <h3>Section 8: Reporting Performance for 13 Health Regions</h3>
+      <p>Positioned as the <strong>terminal module</strong> at the bottom of the page under the header <strong>"การประเมินผลการรายงานข่าว (13 เขตสุขภาพ)"</strong>[cite: 1]:</p>
+      <ul>
+        <li><strong>Scoring Legend:</strong> Display 5 tiers: &ge; 90.00% (0.5), 85.00-89.99% (0.4), 80.00-84.99% (0.3), 75.00-79.99% (0.2), 70.00-74.99% (0.1)[cite: 1]. <strong>Delete all qualitative verbal ratings ("Excellent", "Good", "Fair", "Needs Improvement")</strong>[cite: 1].</li>
+        <li><strong>Regional Performance Grid:</strong> Render responsive cards for Health Region 1 through Health Region 13 showing the full region title, percentage submitted on-time, and score badge[cite: 1].</li>
+      </ul>
+    </section>
+
+    <!-- Section 4: Exclusion Checklist -->
+    <section class="card">
+      <h2 class="card-title">4. Complete Exclusion & Cleanup Checklist</h2>
+      <ul class="checklist">
+        <li>Remove left sidebar navigation and layout container constraints[cite: 1].</li>
+        <li>Remove "Apply Filter" and "Clear All Filters" manual action buttons[cite: 1].</li>
+        <li>Remove English duplicate month abbreviations (Jan, Feb, etc.) from dropdown inputs[cite: 1].</li>
+        <li>Remove subheader "การวิเคราะห์เชิงลึก รายละเอียดของเหตุการณ์ตามขอบเขตที่กรองไว้"[cite: 1].</li>
+        <li>Remove the duplicate "5 Patient Groups" horizontal bar card[cite: 1].</li>
+        <li>Remove redundant "รวม 440 เหตุการณ์" text labels below sub-charts[cite: 1].</li>
+        <li>Remove the "ประวัติการรักษา" (Treatment History) chart[cite: 1].</li>
+        <li>Remove the "การช่วยเหลือผู้ก่อเหตุ" (Assistance Provided) chart[cite: 1].</li>
+        <li>Remove gender stratification inside the Offender Age Group chart (unify into single age bars)[cite: 1].</li>
+        <li>Remove qualitative rating text labels ("ดีเยี่ยม, ดี, ปานกลาง, พอใช้, ปรับปรุง") from regional scoring legends[cite: 1].</li>
+      </ul>
+    </section>
+  </div>
+</body>
+</html>

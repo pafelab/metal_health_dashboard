@@ -3,25 +3,17 @@
 // on open and returns to the trigger on close, Tab/Shift+Tab cycle inside the panel while it is
 // open, arrow keys move between months, selection is exposed with aria-pressed, and the chosen
 // month/year is announced through a polite live region. Public props are unchanged.
+//
+// Review deck slide 10 ("Drop down ทั้งหมด ตัดภาษาอังกฤษออก เช่น ม.ค ไม่เอาคำว่า JAN"): every
+// English gloss is gone — the Jan..Dec abbreviations under each month cell, the '(Jun 2026)' tail
+// on the trigger label and its screen-reader announcement, the '(A.D. 2026)' line in the year
+// header, and the '(Clear)' / '(This Month)' tails in the footer. This control is Buddhist-era
+// native (it never renders a Gregorian year at all), so nothing here needed the A.D. line as
+// proof of a conversion — see the header comment in FilterBar.tsx.
 
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useId } from 'react'
 import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { THAI_MONTHS, MONTH_ABBR } from '@/config'
-
-const ENG_MONTH_ABBR = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-]
 
 /** Month grid is 3 columns wide, so ArrowUp/ArrowDown move by three. */
 const GRID_STEP: Record<string, number> = {
@@ -210,8 +202,11 @@ export default function MonthPicker({
 
   function handleClearFromTrigger() {
     onChange('')
-    // The clear control disappears with the value, so park focus on the trigger.
-    triggerRef.current?.focus()
+    // This X sits on the trigger row, so it is reachable while the panel is open. Since filters
+    // auto-apply now, close() as well — otherwise the page refreshes behind a panel still covering
+    // it. close() also parks focus on the trigger, which this control needs anyway: it disappears
+    // along with the value it clears.
+    close()
   }
 
   function handleSetThisMonth() {
@@ -223,14 +218,11 @@ export default function MonthPicker({
     close()
   }
 
-  // Display text on trigger button
+  // Display text on trigger button — Thai month + Buddhist year only (deck slide 10).
   const displayLabel = useMemo(() => {
     if (!parsed) return null
-    const idx = parsed.month - 1
-    const thName = THAI_MONTHS[idx] ?? ''
-    const enAbbr = ENG_MONTH_ABBR[idx] ?? ''
-    const ceYear = parsed.year - 543
-    return `${thName} ${parsed.year} (${enAbbr} ${ceYear})`
+    const thName = THAI_MONTHS[parsed.month - 1] ?? ''
+    return `${thName} ${parsed.year}`
   }, [parsed])
 
   const ringColor =
@@ -316,7 +308,7 @@ export default function MonthPicker({
           aria-label="เลือกเดือนและปี"
           onKeyDown={handlePanelKeyDown}
           style={{ maxHeight: placement.maxHeight || undefined }}
-          className={`absolute z-50 overflow-y-auto overscroll-contain bg-white rounded-2xl shadow-xl border border-slate-100 p-3.5 w-[min(20rem,calc(100vw-2rem))] ${
+          className={`absolute z-50 overflow-y-auto overscroll-contain bg-white rounded-2xl shadow-xl border border-slate-100 p-3.5 w-full min-w-[min(260px,calc(100vw-2rem))] max-w-[min(20rem,calc(100vw-2rem))] ${
             placement.alignRight ? 'right-0' : 'left-0'
           } ${placement.above ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
         >
@@ -334,7 +326,6 @@ export default function MonthPicker({
 
             <div className="text-center">
               <div className="text-base font-bold text-slate-800">พ.ศ. {viewYear}</div>
-              <div className="text-xs text-slate-500 font-medium">(A.D. {viewYear - 543})</div>
             </div>
 
             <button
@@ -374,7 +365,6 @@ export default function MonthPicker({
               const isSelected = parsed?.year === viewYear && parsed?.month === idx + 1
               const isCurrentMonth = viewYear === now.getFullYear() + 543 && idx === now.getMonth()
               const abbr = MONTH_ABBR[idx]
-              const enAbbr = ENG_MONTH_ABBR[idx]
 
               return (
                 <button
@@ -387,7 +377,7 @@ export default function MonthPicker({
                   onKeyDown={(e) => handleMonthKeyDown(e, idx)}
                   aria-pressed={isSelected}
                   aria-label={`${thMonth} ${viewYear}`}
-                  className={`flex min-h-[44px] flex-col items-center justify-center py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${focusRing} ${
+                  className={`flex min-h-[44px] items-center justify-center py-2 px-1 rounded-xl text-center transition-all cursor-pointer ${focusRing} ${
                     isSelected
                       ? activeBg
                       : isCurrentMonth
@@ -395,13 +385,10 @@ export default function MonthPicker({
                         : `text-slate-700 bg-slate-50/70 hover:bg-slate-100 ${hoverBg}`
                   }`}
                 >
+                  {/* Single Thai line (deck slide 10). min-h-[44px] still carries the touch target
+                      that the two-line cell used to reach on its own. */}
                   <span className={`text-sm font-semibold ${isSelected ? 'text-white' : ''}`}>
                     {abbr}
-                  </span>
-                  <span
-                    className={`text-[11px] mt-0.5 ${isSelected ? 'text-white/90' : 'text-slate-500'}`}
-                  >
-                    {enAbbr}
                   </span>
                 </button>
               )
@@ -410,19 +397,25 @@ export default function MonthPicker({
 
           {/* Footer Actions */}
           <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs font-medium">
+            {/* Filters now apply the instant onChange fires (deck slide 11), so this must close
+                the popover like every other committing control here — otherwise the page behind
+                would refresh under a panel that is still open and still covering it. */}
             <button
               type="button"
-              onClick={() => onChange('')}
+              onClick={() => {
+                onChange('')
+                close()
+              }}
               className={`inline-flex min-h-[44px] items-center text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer ${focusRing}`}
             >
-              ล้างค่า (Clear)
+              ล้างค่า
             </button>
             <button
               type="button"
               onClick={handleSetThisMonth}
               className={`inline-flex min-h-[44px] items-center text-slate-700 hover:text-slate-950 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer font-semibold ${focusRing}`}
             >
-              เดือนนี้ (This Month)
+              เดือนนี้
             </button>
           </div>
         </div>

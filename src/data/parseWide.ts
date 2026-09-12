@@ -25,11 +25,29 @@ const IDX = {
   channel: 38,
   severity: 39,
   reporting: 40,
+  // Casualty counts (deck slide 22). Both schemas (85-column and the old 84-column fallback) keep
+  // these at the same offsets, and their headers carry embedded newlines
+  // ('เจ้าหน้าที่\nที่ได้รับผลกระทบบาดเจ็บ ภัยอื่นๆ'), so index resolution stays the right call
+  // for this tab. Col 49 in between is อาชีพเจ้าหน้าที่ (text), which is why 48 and 50 are not
+  // adjacent. Measured sums on the 2026-09-12 fixture: 16 / 13 / 672 / 151.
+  officerInjured: 47,
+  officerDead: 48,
+  publicInjured: 50,
+  publicDead: 51,
 } as const
 
 /** A wide-tab row belongs to Section 2 only if col 35 or col 36 is non-empty. SPEC 3.3. */
 function isSection2Row(row: string[]): boolean {
   return cell(row, IDX.province) !== '' || cell(row, IDX.headline) !== ''
+}
+
+/** Casualty cell → a count. '-', blanks and any non-integer text are 0 (the only non-numeric
+ *  value observed in these four columns is '-'). */
+function toCount(raw: string): number {
+  const t = raw.trim()
+  if (!/^\d+$/.test(t)) return 0
+  const n = parseInt(t, 10)
+  return Number.isNaN(n) ? 0 : n
 }
 
 function resolveHazards(row: string[]): string[] {
@@ -68,6 +86,11 @@ export function parseWide(rows: string[][]): HazardEvent[] {
       reporting: cell(row, IDX.reporting),
 
       hazards: resolveHazards(row),
+
+      officerInjured: toCount(cell(row, IDX.officerInjured)),
+      officerDead: toCount(cell(row, IDX.officerDead)),
+      publicInjured: toCount(cell(row, IDX.publicInjured)),
+      publicDead: toCount(cell(row, IDX.publicDead)),
     })
   }
   return events

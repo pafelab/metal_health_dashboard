@@ -13,6 +13,37 @@ Project root is `I:\healhtdashboard`.
 - `docs/data/1683387958.csv` — ชีต2, 440 data rows + header, 37 cols (SPEC 3.2)
 - `docs/data/842224166.csv` — wide tab, 748 data rows + header, 84 cols (SPEC 3.3/3.4)
 - `docs/data/1523955266.csv` — wide tab duplicate (fallback gid)
+
+## SHEET SCHEMA REFRESHED 2026-09-12 — the fixture above was re-downloaded
+`docs/data/842224166.csv` (the tab the app actually fetches, `GID_WIDE`) was re-pulled from the
+live sheet on 2026-09-12 and is **85 columns**, not the 84 captured on 2026-09-09. The sheet owner
+restructured Section 1 to match the `แก้งับ.pdf` review deck:
+
+| col | was (2026-09-09) | now (2026-09-12) |
+|---|---|---|
+| 14 `ประเภทผู้ป่วย` | 2 values — `ผู้ป่วยรายเก่า` / `ผู้ป่วยรายใหม่` | **5-way status** — จิตเวชรายเก่า (269) / จิตเวชรายใหม่ (7) / สารเสพติดรายเก่า (67) / สารเสพติดรายใหม่ (73) / `"ไม่ใช่ผู้ป่วยจิตเวช/ ไม่ใช่ผู้ใช้สารเสพติด"` (163), plus 1 stray legacy `ผู้ป่วยรายใหม่` |
+| 74 | `ขาดยา` (free text, 10 distinct) | **`ขาดยา/ไม่มาตามนัด`** — single-value flag column (236 rows) |
+| 75 | `กลับมาเสพซ้ำ` (free text, 12 distinct) | **`กลับมาใช้สารเสพติดซ้ำ`** — flag (213 rows) |
+| 76 | `ไม่มาตามนัด` (free text) | **`มีการใช้สารเสพติดร่วมด้วย`** — flag (105 rows); this is the deck's NEW 4th risk factor |
+| 77 | `อื่น ๆ` | `อื่น ๆ` — flag (31 rows) |
+| 84 | *(did not exist)* | **`5สัญญาณเตือน`** — the sheet's own มี/ไม่มี answer (355 / 225) |
+
+Warning-sign flags now sit at **78–82** (ไม่หลับไม่นอน / เดินไปเดินมา / พูดจาคนเดียว /
+หงุดหงิดฉุนเฉียว / เที่ยวหวาดระแวง) with 83 = `ไม่มีอการทางจิตเวช` (sheet's own typo, verbatim).
+
+Measured on the refreshed fixture (580 Section-1 rows):
+- 4-factor denominator (col 14 in the four psychiatric/substance statuses, i.e. excluding
+  `ไม่ใช่ผู้ป่วยจิตเวช/ไม่ใช่ผู้ใช้สารเสพติด`) = **417**; 413 of those carry >=1 factor (99.0%).
+- Warning signs over ALL 580 rows: 350 carry >=1 sign (60.3%).
+- Hazard casualties (cols 47/48/50/51): officer injured 16, officer dead 13, public injured 672,
+  public dead 151.
+
+### The fallback gid is NO LONGER a duplicate
+`GID_WIDE_FALLBACK` (1523955266) still returns the **old 84-column schema** — it was re-pulled the
+same day and is byte-for-byte the pre-restructure layout. SPEC's "byte-identical" claim is stale.
+If the fallback ever fires, col 14 degrades to 2 values and cols 74-76 to free text. Parsers must
+therefore resolve these columns by header name with the OLD names kept as aliases, so a fallback
+fetch degrades gracefully instead of reading the wrong columns.
 - `docs/data/zones.json` — zone → province table lifted from site 2
 - `docs/data/provEnToTh.json` — 78-entry EN→TH province map lifted from site 1
 - Assets already copied to `public/forms`, `public/reference`, `public/team`.

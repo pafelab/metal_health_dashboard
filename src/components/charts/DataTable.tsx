@@ -18,6 +18,17 @@ export interface DataTableProps {
   categoryHeader?: string
   /** Percentage base. Defaults to the sum of every value. */
   total?: number
+  /**
+   * Whether the rows shown are a truncated top-N of a larger set. Left undefined, it is inferred
+   * from `total > sum(values)`, which is how every top-N widget has always signalled it.
+   *
+   * That inference is wrong for a widget whose denominator legitimately exceeds the sum of its
+   * bars — a multi-select question where a respondent may tick nothing, for instance, has a
+   * people-denominator larger than the total number of ticks while still drawing EVERY category.
+   * Such a widget passes `truncated={false}` and the table names the extra figure as the
+   * percentage base instead of claiming rows were left out.
+   */
+  truncated?: boolean
   valueSuffix?: string
   maxHeight?: number
 }
@@ -52,24 +63,35 @@ export function summaryText(props: {
   categories: string[]
   series: DataTableSeries[]
   total?: number
+  /** See DataTableProps.truncated — same meaning, same default inference. */
+  truncated?: boolean
   unit?: string
 }): string {
   const totals = rowTotals(props)
   const sum = totals.reduce((a, b) => a + b, 0)
   const base = props.total ?? sum
   const unit = props.unit?.trim() || 'รายการ'
-  if (!totals.length || sum <= 0) return `รวม 0 ${unit}`
+  if (!totals.length || sum <= 0) return `ไม่มีข้อมูลในช่วงที่เลือก`
 
   let topIdx = 0
   for (let i = 1; i < totals.length; i += 1) if (totals[i] > totals[topIdx]) topIdx = i
   const topName = props.categories[topIdx] ?? '-'
   // A top-N chart shows only part of its data: say so rather than presenting the visible subset
-  // as the grand total (audit UX-13 — the stated denominator must be the real one).
-  const head =
-    base > sum
-      ? `แสดง ${totals.length} อันดับแรก รวม ${fmt(sum)} จากทั้งหมด ${fmt(base)} ${unit}`
-      : `รวม ${fmt(sum)} ${unit}`
-  return `${head} · สูงสุด: ${topName} ${fmt(totals[topIdx])} (${pctText(totals[topIdx], base)})`
+  // as the grand total (audit UX-13 — the stated denominator must be the real one). But a bigger
+  // denominator is not proof of truncation, so an explicit `truncated: false` switches the copy
+  // to "this is the percentage base", never to a false claim that rows were dropped.
+  const isTruncated = props.truncated ?? base > sum
+  // Deck slide 15 ("ตัด รวม 440 ออกให้หมด") / slide 18: the plain grand-total prefix is cut from
+  // every chart footer. The top-N sentence STAYS — it is not that total, it is the statement that
+  // the chart shows only part of its data and what the real denominator is (audit UX-13);
+  // dropping it would let a visible subset read as the whole.
+  const top = `สูงสุด: ${topName} ${fmt(totals[topIdx])} (${pctText(totals[topIdx], base)})`
+  const head = isTruncated
+    ? `แสดง ${totals.length} อันดับแรก จากทั้งหมด ${fmt(base)} ${unit}`
+    : base > sum
+    ? `คิดร้อยละจากฐาน ${fmt(base)} ${unit}`
+    : ''
+  return head ? `${head} · ${top}` : top
 }
 
 export default function DataTable({
@@ -78,6 +100,7 @@ export default function DataTable({
   series,
   categoryHeader = 'หมวด',
   total,
+  truncated,
   valueSuffix = '',
   maxHeight = 340,
 }: DataTableProps): JSX.Element {
@@ -86,9 +109,13 @@ export default function DataTable({
   const grand = totals.reduce((a, b) => a + b, 0)
   const base = total ?? grand
   const seriesTotals = series.map((s) => categories.reduce((acc, _, i) => acc + num(s.values[i]), 0))
-  // The displayed rows are a truncated top-N of a larger set (audit UX-13): the footer must then
-  // separate "sum of what is shown" from the real grand total the percentages are measured against.
-  const isTruncated = base > grand
+  // The percentage base is larger than what the rows add up to, so the footer must separate "sum
+  // of the rows" from the figure the percentages are measured against (audit UX-13). WHY they
+  // differ is a separate question: by default a bigger base means a truncated top-N, but a widget
+  // that draws every category over a people-denominator passes `truncated={false}` and gets the
+  // neutral "ฐานคำนวณร้อยละ" wording instead of a wrong "N อันดับแรก" claim.
+  const hasSeparateBase = base > grand
+  const isTruncated = truncated ?? hasSeparateBase
 
   const headCls = 'px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap'
   const cellCls = 'px-3 py-2 text-right tabular-nums text-slate-700'
@@ -119,7 +146,7 @@ export default function DataTable({
               </th>
             )}
             <th scope="col" className={headCls}>
-              {isTruncated ? '% ของทั้งหมด' : '% ของรวม'}
+              {isTruncated ? '% ของทั้งหมด' : hasSeparateBase ? '% ของฐาน' : '% ของรวม'}
             </th>
           </tr>
         </thead>
@@ -177,10 +204,10 @@ export default function DataTable({
             )}
             <td className={`${cellCls} text-slate-800`}>{pctText(grand, base)}</td>
           </tr>
-          {isTruncated && (
+          {hasSeparateBase && (
             <tr className="border-t border-slate-200 font-semibold">
               <th scope="row" className="px-3 py-2 text-left text-slate-800">
-                รวมทั้งหมด
+                {isTruncated ? 'รวมทั้งหมด' : 'ฐานคำนวณร้อยละ'}
               </th>
               {isMulti &&
                 series.map((s) => (

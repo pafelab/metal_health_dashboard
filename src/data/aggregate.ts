@@ -6,6 +6,8 @@ import {
   ALL_PROVINCES,
   AGE_BANDS,
   CATEGORY_ORDERS,
+  PATIENT_GROUP7_ALIASES,
+  RISK_DENOMINATOR_STATUSES,
   RISK_KEYWORDS,
   SIGN_KEYWORDS,
   HAZARD_TYPES,
@@ -79,7 +81,14 @@ export function topN<T>(rows: T[], pick: (row: T) => string, n: number): Categor
  * ข้อมูลไม่เพียงพอต่อการตรวจสอบ — these belong to the SEPARATE ผู้ป่วยจิตเวช/อื่นๆ group column,
  * not this diagnosis pie) are "excluded from the pie". Pre-filtering to the allowed set before
  * calling countBy keeps countBy's general contract intact for every other consumer while giving
- * this one widget the SPEC 3.2 shape: 3 slices, total 170 (BUILD_NOTES: 89 + 64 + 17).
+ * this one widget the SPEC 3.2 shape: 3 slices. Totals per fixture — 170 (89 + 64 + 17) on the
+ * legacy narrow ชีต2 tab that BUILD_NOTES measured, 230 (88 + 26 + 116) on the refreshed
+ * 2026-09-12 wide tab the app now fetches; the shape is what is fixed, not the total.
+ *
+ * The review deck asks for the SEVEN-group view of this same column instead — that is
+ * patientGroup7Counts(), which lives beside this function rather than replacing it, because
+ * CATEGORY_ORDERS.diagnosis doubles as this function's allow-list: growing that array from 3 to 7
+ * would silently turn this 3-slice pie into a 7-slice one.
  */
 export function psychiatricDiagnosisCounts(rows: SLEvent[]): CategoryCount[] {
   const allowed = new Set(CATEGORY_ORDERS.diagnosis.map(collapseWs))
@@ -184,10 +193,18 @@ export function provinceCounts(rows: { province: string }[]): CategoryCount[] {
   return countBy(rows, (r) => r.province, ALL_PROVINCES)
 }
 
-/** Counts by zone, all 13 zones in order (0-filled), labelled 'เขต N'. */
+/**
+ * Counts by zone, all 13 zones in order (0-filled), labelled 'เขตสุขภาพที่ N' (review deck: the
+ * axis must spell the unit out, matching the section titles and the zone-tab copy).
+ *
+ * The label is built TWICE here — once for the fixed order, once as the pick key — and the two
+ * MUST stay identical: change only one and countBy() emits 13 empty buckets under the old label
+ * plus 13 appended ones under the new, a chart that renders perfectly and is entirely wrong.
+ */
 export function zoneCounts(rows: { zone: number | null }[]): CategoryCount[] {
-  const order = Array.from({ length: 13 }, (_, i) => `เขต ${i + 1}`)
-  return countBy(rows, (r) => (r.zone === null ? '' : `เขต ${r.zone}`), order)
+  const zoneLabel = (z: number) => `เขตสุขภาพที่ ${z}`
+  const order = Array.from({ length: 13 }, (_, i) => zoneLabel(i + 1))
+  return countBy(rows, (r) => (r.zone === null ? '' : zoneLabel(r.zone)), order)
 }
 
 /** KPI severity counts. `total` is every row regardless of severity (an 'unknown' row still
@@ -286,68 +303,179 @@ export function impactByPatientGroup(rows: { patientGroup: string; deaths: numbe
   return [...result, ...extras]
 }
 
-/** Join the ten risk+sign cells (SPEC 4.4) into one scan string; blank/'-' cells are ignored. */
-function joinRiskSignCells(riskCells: string[], signCells: string[]): string {
-  return [...riskCells, ...signCells]
-    .map((c) => c.trim())
-    .filter((c) => c !== '' && c !== '-')
-    .join(' ')
+/** What riskFactors()/warningSigns() return. `denominator` — NOT `affected` — is the base every
+ *  per-factor percentage must be divided by (see riskFactors' worked example). */
+export interface FactorBreakdown {
+  items: CategoryCount[]
+  denominator: number
+  affected: number
+}
+
+/** The patient statuses that can carry a risk factor, whitespace-normalised for comparison. */
+const RISK_DENOMINATOR_SET = new Set(RISK_DENOMINATOR_STATUSES.map(collapseWs))
+
+/** True when a row's ประเภทผู้ป่วย is one of the four psychiatric/substance statuses. */
+export function isRiskDenominatorRow(row: { patientStatus: string }): boolean {
+  return RISK_DENOMINATOR_SET.has(collapseWs(row.patientStatus))
 }
 
 /**
- * Risk factors (SPEC 4.4). Scanned over the ผู้ป่วยรายเก่า subset only — the denominator N is
- * defined as that subset ("จาก N ผู้ป่วยรายเก่า · มีปัจจัยเสี่ยง M ราย"), and a risk-factor
- * history is only meaningful for a returning patient, so both the per-factor breakdown and the
- * `affected` count are scoped the same way M stays a true subset of N.
+ * ปัจจัยเสี่ยง — review deck slide 13. Read from SLEvent.riskFlags (cols 74-77 are single-value
+ * FLAG columns since the 2026-09-12 restructure), no longer from a keyword scan of free text.
+ *
+ * DENOMINATOR (the deck states this explicitly): only rows whose ประเภทผู้ป่วย is one of the four
+ * psychiatric/substance statuses — "จะหารแค่ ผู้ป่วยจิตเวชรายเก่า จิตเวชรายใหม่
+ * ผู้ใช้สารเสพติดรายเก่า ผู้ใช้สารเสพติดรายใหม่ จะไม่เอา คำว่า
+ * ไม่ใช่ผู้ป่วยจิตเวช/ไม่ใช่ผู้ใช้สารเสพติด มาคิด" — and the deck's worked example fixes the
+ * percentage base too: of 100 people in 5 equal groups only 80 can have a factor, so ขาดยา 20
+ * reads 20*100/80 = 25%. Every per-factor percentage is therefore value/denominator, NEVER
+ * value/affected. 417 / 413 on the 2026-09-12 fixture.
+ *
+ * This replaces the previous scoping to CATEGORY_ORDERS.patientClass[0] ('ผู้ป่วยรายเก่า'), a
+ * positional lookup into a column whose vocabulary the sheet owner has since replaced — after the
+ * restructure it matched nothing at all.
  */
-export function riskFactors(rows: SLEvent[]): { items: CategoryCount[]; denominator: number; affected: number } {
-  const oldPatientRows = rows.filter((r) => collapseWs(r.patientClass) === collapseWs(CATEGORY_ORDERS.patientClass[0]))
-  const denominator = oldPatientRows.length
+export function riskFactors(rows: SLEvent[]): FactorBreakdown {
+  const scoped = rows.filter(isRiskDenominatorRow)
   const items: CategoryCount[] = RISK_KEYWORDS.map((k) => ({ name: k.label, value: 0 }))
   let affected = 0
 
-  for (const row of oldPatientRows) {
-    const text = joinRiskSignCells(row.riskCells, row.signCells)
+  for (const row of scoped) {
     let hasAny = false
-    RISK_KEYWORDS.forEach((k, i) => {
-      let match: boolean
-      if (k.cellIndex !== undefined) {
-        const c = (row.riskCells[k.cellIndex] ?? '').trim()
-        match = c !== '' && c !== '-'
-      } else {
-        match = k.keywords.some((kw) => text.includes(kw))
-      }
-      if (match) {
+    for (let i = 0; i < items.length; i++) {
+      if (row.riskFlags[i]) {
         items[i].value++
         hasAny = true
       }
-    })
+    }
     if (hasAny) affected++
   }
 
-  return { items, denominator, affected }
+  return { items, denominator: scoped.length, affected }
 }
 
-/** Warning signs (SPEC 4.4). Denominator = all filtered events; scanned over every row. */
-export function warningSigns(rows: SLEvent[]): { items: CategoryCount[]; denominator: number; affected: number } {
-  const denominator = rows.length
+/**
+ * 5 สัญญาณเตือน — review deck slide 14. Read from SLEvent.signFlags (cols 78-82 as FLAG columns);
+ * signFlags[i] belongs to SIGN_KEYWORDS[i] by construction (the parser resolves each sign to its
+ * own column by header name, because the display order is not the column order).
+ *
+ * DENOMINATOR = ALL filtered events — "จะหารจำนวนข่าวทั้งหมดนะ เพราะทุกคนสามารถเป็น 5 สัญญาณได้".
+ * Per-sign percentages divide by `denominator`, same rule as riskFactors. 350 of 580 rows carry at
+ * least one sign on the 2026-09-12 fixture (60.3%).
+ */
+export function warningSigns(rows: SLEvent[]): FactorBreakdown {
   const items: CategoryCount[] = SIGN_KEYWORDS.map((k) => ({ name: k.label, value: 0 }))
   let affected = 0
 
   for (const row of rows) {
-    const text = joinRiskSignCells(row.riskCells, row.signCells)
     let hasAny = false
-    SIGN_KEYWORDS.forEach((k, i) => {
-      const match = k.keywords.some((kw) => text.includes(kw))
-      if (match) {
+    for (let i = 0; i < items.length; i++) {
+      if (row.signFlags[i]) {
         items[i].value++
         hasAny = true
       }
-    })
+    }
     if (hasAny) affected++
   }
 
-  return { items, denominator, affected }
+  return { items, denominator: rows.length, affected }
+}
+
+/**
+ * ประเภทผู้ป่วย (col 14) — the 5-way status donut, fixed order, 0-filled. Counts the NORMALIZED
+ * `patientStatus`, so the quote-wrapped ไม่ใช่ผู้ป่วยจิตเวช value lands in its own slice instead
+ * of a sixth look-alike one. 269 / 7 / 67 / 73 / 163 on the 2026-09-12 fixture.
+ */
+export function patientStatusCounts(rows: SLEvent[]): CategoryCount[] {
+  return countBy(rows, (r) => r.patientStatus, CATEGORY_ORDERS.patientStatus5)
+}
+
+/**
+ * Raw col-12 value → the deck's SHORT group label. The three long '(Dx. …)' spellings are listed
+ * in PATIENT_GROUP7_ALIASES; anything else falls back to the text before the first ' (', which
+ * keeps a re-worded parenthetical from silently creating a new category.
+ */
+function group7Label(raw: string): string {
+  const t = collapseWs(raw)
+  if (t === '' || t === '-') return ''
+  const alias = PATIENT_GROUP7_ALIASES[t]
+  if (alias !== undefined) return alias
+  const paren = t.indexOf(' (')
+  return paren > 0 ? t.slice(0, paren).trim() : t
+}
+
+/**
+ * การประเมินกลุ่มผู้ป่วย (col 12) as the deck's SEVEN groups (slide 15), short labels, fixed
+ * order, 0-filled. Distinct from psychiatricDiagnosisCounts(), which keeps SPEC 3.2's 3-slice
+ * psychiatric-only pie over the same column.
+ */
+export function patientGroup7Counts(rows: SLEvent[]): CategoryCount[] {
+  return countBy(rows, (r) => group7Label(r.diagnosis), CATEGORY_ORDERS.patientGroup7)
+}
+
+/** Deaths / injuries summed per deck group, fixed 7-group order with any unlisted value appended
+ *  (SPEC 4.5). Same shape as impactByPatientGroup(), which stays on the col-13 5-group column. */
+export function impactByGroup7(rows: SLEvent[]): { group: string; deaths: number; injured: number }[] {
+  const sums = new Map<string, { deaths: number; injured: number }>()
+  for (const row of rows) {
+    const label = group7Label(row.diagnosis)
+    if (label === '') continue
+    const cur = sums.get(label) ?? { deaths: 0, injured: 0 }
+    cur.deaths += row.deaths
+    cur.injured += row.injured
+    sums.set(label, cur)
+  }
+
+  const result = CATEGORY_ORDERS.patientGroup7.map((group) => {
+    const hit = sums.get(group)
+    sums.delete(group)
+    return { group, deaths: hit?.deaths ?? 0, injured: hit?.injured ?? 0 }
+  })
+
+  const extras: { group: string; deaths: number; injured: number }[] = []
+  sums.forEach((val, group) => extras.push({ group, deaths: val.deaths, injured: val.injured }))
+  extras.sort((a, b) => b.deaths + b.injured - (a.deaths + a.injured))
+
+  return [...result, ...extras]
+}
+
+/** Six age bands (SPEC 4.3) counted over ALL rows, NOT split by gender — the deck's single-series
+ *  ช่วงวัย chart. ageBandByGender() keeps the gender split for the stacked variant. */
+export function ageBandCounts(rows: { ageBand: string }[]): CategoryCount[] {
+  return AGE_BANDS.map((band) => ({
+    name: band.label,
+    value: rows.reduce((acc, row) => (row.ageBand === band.label ? acc + 1 : acc), 0),
+  }))
+}
+
+/**
+ * Section 2 casualty totals (cols 47/48/50/51). `total` is all four summed — the headline figure
+ * the deck asks for. 16 / 13 / 672 / 151 (total 852) on the 2026-09-12 fixture.
+ */
+export function hazardCasualties(rows: HazardEvent[]): {
+  officerInjured: number
+  officerDead: number
+  publicInjured: number
+  publicDead: number
+  total: number
+} {
+  let officerInjured = 0
+  let officerDead = 0
+  let publicInjured = 0
+  let publicDead = 0
+  for (const row of rows) {
+    officerInjured += row.officerInjured
+    officerDead += row.officerDead
+    publicInjured += row.publicInjured
+    publicDead += row.publicDead
+  }
+  return {
+    officerInjured,
+    officerDead,
+    publicInjured,
+    publicDead,
+    total: officerInjured + officerDead + publicInjured + publicDead,
+  }
 }
 
 /** Suicide subset (SPEC 4.6): การฆ่าตัวตาย not blank and not '-'. */

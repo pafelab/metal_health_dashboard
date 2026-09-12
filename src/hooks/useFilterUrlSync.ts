@@ -10,6 +10,14 @@
 //           back button still walks tabs, not every filter tweak) and no scroll jump.
 //
 // The draft is never written to the URL — only what the user has actually applied.
+//
+// Auto-apply (review deck slide 11) makes `applied` change on every dropdown click rather than on
+// a คัดกรอง press, so the write effect now fires once per click. That is still one replaceState
+// per discrete user action — every control bound to Filters is click-driven (SearchableSelect's
+// search box writes to its own local state, MonthPicker commits on a month button) — so no
+// debounce is needed. If a free-text control is ever bound to Filters, debounce HERE, at the
+// applied/URL-write boundary, never at the input: debouncing the input would reintroduce the
+// draft-vs-applied lag the deck asked us to remove.
 
 import { useEffect, useRef } from 'react'
 import type { Filters } from '@/types'
@@ -57,6 +65,15 @@ function parseQuery(search: string, defaults: Filters): Filters | null {
   if (to && isBeMonth(to)) {
     next.toMonth = to
     used = true
+  }
+  // Second entry point for an inverted range: a hand-edited or stale shared link can carry
+  // from > to, which matches zero rows and blanks every widget on load. FilterBar guards the
+  // interactive path by clamping the other endpoint; here neither bound is "the one just picked",
+  // so the narrower bound is simply dropped — '?from=2569-06&to=2569-01' restores as
+  // "ตั้งแต่ มิ.ย. 2569 เป็นต้นไป", which is non-empty and honest. The write effect then
+  // rewrites the URL without the bad key.
+  if (next.fromMonth && next.toMonth && next.fromMonth > next.toMonth) {
+    next.toMonth = defaults.toMonth
   }
   const zone = params.get('zone')
   if (zone !== null) {

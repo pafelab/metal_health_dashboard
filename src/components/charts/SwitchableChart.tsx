@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import type { ChartType } from '@/types'
 import { PALETTE } from '@/config'
-import Card from '@/components/layout/Card'
+import Card, { type CardHeaderTone } from '@/components/layout/Card'
 import { useChartType } from '@/hooks/useChartType'
 import { buildChartOption, buildMultiSeriesOption, type ChartDatum } from './chartOptions'
 import DataTable, { summaryText, type DataTableSeries } from './DataTable'
@@ -183,6 +183,15 @@ export interface SwitchableChartProps {
   unit?: string
   /** Header of the table's first column. Defaults to 'หมวด'. */
   categoryHeader?: string
+  /**
+   * Set `false` when `total` is legitimately larger than the sum of the plotted values but every
+   * category IS drawn (a people-denominator behind a multi-select question, say). Without it the
+   * table and summary infer a truncated top-N from `total > sum` and print a sentence wrongly
+   * claiming rows were left out. Leave undefined for a real top-N chart.
+   */
+  truncated?: boolean
+  /** Deck slide 9 — forwarded to Card so a topic can be framed with a filled title band. */
+  headerTone?: CardHeaderTone
 }
 
 export default function SwitchableChart(p: SwitchableChartProps): JSX.Element {
@@ -221,8 +230,8 @@ export default function SwitchableChart(p: SwitchableChartProps): JSX.Element {
     [p.data],
   )
   const summary = useMemo(
-    () => summaryText({ categories, series: tableSeries, total: p.total, unit: p.unit }),
-    [categories, tableSeries, p.total, p.unit],
+    () => summaryText({ categories, series: tableSeries, total: p.total, truncated: p.truncated, unit: p.unit }),
+    [categories, tableSeries, p.total, p.truncated, p.unit],
   )
 
   return (
@@ -231,9 +240,14 @@ export default function SwitchableChart(p: SwitchableChartProps): JSX.Element {
       subtitle={p.subtitle}
       icon={p.icon}
       accent={accent}
+      headerTone={p.headerTone}
       right={
         isEmpty ? undefined : (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div
+            className={`flex flex-wrap items-center justify-end gap-2 ${
+              p.headerTone && p.headerTone !== 'plain' ? 'rounded-xl bg-white/95 p-1 shadow-sm' : ''
+            }`}
+          >
             {allowed.length > 1 && !showTable && (
               <ChartTypeSwitcher
                 allowedTypes={allowed}
@@ -257,6 +271,7 @@ export default function SwitchableChart(p: SwitchableChartProps): JSX.Element {
             series={tableSeries}
             categoryHeader={p.categoryHeader}
             total={p.total}
+            truncated={p.truncated}
             valueSuffix={p.valueSuffix ?? ''}
             maxHeight={height}
           />
@@ -290,6 +305,15 @@ export interface MultiSeriesChartProps {
   unit?: string
   /** Header of the table's first column. Defaults to 'หมวด'. */
   categoryHeader?: string
+  /**
+   * Set `false` when `total` is legitimately larger than the sum of the plotted values but every
+   * category IS drawn (a people-denominator behind a multi-select question, say). Without it the
+   * table and summary infer a truncated top-N from `total > sum` and print a sentence wrongly
+   * claiming rows were left out. Leave undefined for a real top-N chart.
+   */
+  truncated?: boolean
+  /** Deck slide 9 — forwarded to Card so a topic can be framed with a filled title band. */
+  headerTone?: CardHeaderTone
 }
 
 export function MultiSeriesChart(p: MultiSeriesChartProps): JSX.Element {
@@ -322,8 +346,15 @@ export function MultiSeriesChart(p: MultiSeriesChartProps): JSX.Element {
     [p.series],
   )
   const summary = useMemo(
-    () => summaryText({ categories: p.categories, series: tableSeries, total: p.total, unit: p.unit }),
-    [p.categories, tableSeries, p.total, p.unit],
+    () =>
+      summaryText({
+        categories: p.categories,
+        series: tableSeries,
+        total: p.total,
+        truncated: p.truncated,
+        unit: p.unit,
+      }),
+    [p.categories, tableSeries, p.total, p.truncated, p.unit],
   )
 
   return (
@@ -332,9 +363,14 @@ export function MultiSeriesChart(p: MultiSeriesChartProps): JSX.Element {
       subtitle={p.subtitle}
       icon={p.icon}
       accent={accent}
+      headerTone={p.headerTone}
       right={
         isEmpty ? undefined : (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div
+            className={`flex flex-wrap items-center justify-end gap-2 ${
+              p.headerTone && p.headerTone !== 'plain' ? 'rounded-xl bg-white/95 p-1 shadow-sm' : ''
+            }`}
+          >
             {allowed.length > 1 && !showTable && (
               <ChartTypeSwitcher
                 allowedTypes={allowed}
@@ -358,6 +394,7 @@ export function MultiSeriesChart(p: MultiSeriesChartProps): JSX.Element {
             series={tableSeries}
             categoryHeader={p.categoryHeader}
             total={p.total}
+            truncated={p.truncated}
             maxHeight={height}
           />
           <ChartSummary text={summary} />

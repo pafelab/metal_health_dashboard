@@ -1,39 +1,54 @@
-// SPEC 6.1 widget 9 — ผู้เสียชีวิต / บาดเจ็บ ตามกลุ่มผู้ป่วย (PDF p.7).
-// Default view: table of the 5 patient groups with mini horizontal bars for ผู้เสียชีวิต and
-// ผู้ได้รับบาดเจ็บ (count + percent). Switchable to grouped bar / h-bar via useChartType, using
-// the SPEC 7 switcher icon row. 'table' is a ChartType value that only this widget renders.
+// SPEC 6.1 widget 9 — ผู้เสียชีวิตและบาดเจ็บ จำแนกตามกลุ่มผู้ป่วย (review deck แก้งับ.pdf slide 17).
+//
+// SLIDE 17 CHANGED THE DEFAULT VIEW. The card used to open on a two-column mini-bar TABLE; the
+// deck asks for a side-by-side comparison instead ("ทำเป็นแผนภูมิแท่งเปรียบเทียบดีกว่า น่าจะอ่านง่าย
+// เห็นภาพมากกว่า"), so the default is now the grouped COLUMN chart and every column carries both
+// its count and its percent ("ใส่เปอเซ็นไว้ ด้านบน และก็ จำนวน ด้วยนะ"). The table view stays on the
+// switcher as the accessible equivalent of the plot (UX-13) — it is no longer the default, not
+// gone. The caller passes a NEW widgetId for that reason: reusing the old one would restore a
+// returning user's persisted 'table' choice and undo the slide's whole point.
+//
+// The rows are now the SEVEN deck groups from impactByGroup7() (col 12), not the five of
+// impactByPatientGroup() (col 13) — the caller chooses; this component only renders what it is
+// given, and the 'บาดเจ็บ/เสียชีวิต per group' semantics are identical either way.
 //
 // UX-11: each percentage is a share of its own column total (deaths / injured summed over the
-// groups), never of the other column and never of the event count. The column headers, the totals
-// row, the chart tooltip and the note under the card all say so, and a 0 total prints '—' instead
-// of a misleading 0.0%.
+// groups), never of the other column and never of the event count. The base is still named in the
+// series names, the tooltip and the table headers — deck slide 17 deletes only the long paragraph
+// that used to repeat it a fourth time under the card ("ตัดออก"), not the base itself. A 0 total
+// prints '—' instead of a misleading 0.0%.
 //
-// UX-11 (base scope): impactByPatientGroup() skips every event whose กลุ่มผู้ป่วย cell is blank or '-'
-// (src/data/aggregate.ts), so the column totals are NOT "all deaths / injured in the filter scope" —
-// they are only those recorded against a patient group. The base is therefore never called
-// 'ทั้งหมด': every header, label, tooltip and note names it
-// 'ในเหตุการณ์ที่ระบุกลุ่มผู้ป่วย', which reconciles with the rows shown.
+// UX-11 (base scope): the aggregate skips every event whose กลุ่มผู้ป่วย cell is blank or '-'
+// (src/data/aggregate.ts), so the column totals are NOT "all deaths / injured in the filter scope"
+// — they are only those recorded against a patient group. The base is therefore never called
+// 'ทั้งหมด': it is 'ในเหตุการณ์ที่ระบุกลุ่มผู้ป่วย', which reconciles with the rows shown.
 
 import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { BarChart3, BarChartHorizontal, HeartCrack, Table2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import Card from '@/components/layout/Card'
-import DenominatorNote from '@/components/widgets/DenominatorNote'
 import { useChartType } from '@/hooks/useChartType'
 import type { ChartType } from '@/types'
 import { PALETTE } from '@/config'
-import { FONT, LABEL_SIZE } from '@/components/charts/chartOptions'
+import { FONT, LABEL_SIZE, wrapThaiLabel } from '@/components/charts/chartOptions'
 
 export interface GroupImpactTableProps {
   widgetId: string
   rows: { group: string; deaths: number; injured: number }[]
 }
 
-const SWITCH_OPTIONS: { type: ChartType; icon: LucideIcon; label: string }[] = [
-  { type: 'table', icon: Table2, label: 'มุมมองตาราง' },
+/** One entry of the little icon switcher rendered in a card header. */
+export interface SwitchOption {
+  type: ChartType
+  icon: LucideIcon
+  label: string
+}
+
+const SWITCH_OPTIONS: SwitchOption[] = [
   { type: 'bar', icon: BarChart3, label: 'แท่งตั้ง' },
   { type: 'hbar', icon: BarChartHorizontal, label: 'แท่งนอน' },
+  { type: 'table', icon: Table2, label: 'มุมมองตาราง' },
 ]
 
 /** The population each column's percentage is taken over — only casualties recorded against a
@@ -49,25 +64,40 @@ function pctText(n: number, total: number): string {
   return total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—'
 }
 
-/** '123 (45.6%)' — SPEC 4.5, with the UX-11 '—' rule for an empty column. */
+/** '123 (45.6%)' — SPEC 4.5's table convention, with the UX-11 '—' rule for an empty column. */
 function fmtCountPct(n: number, total: number): string {
   return `${n} (${pctText(n, total)})`
 }
 
+/** '45.6% (123)' — the same pair in the order the BAR labels use. Deck slide 17 puts the percent
+ *  first ("ใส่เปอเซ็นไว้ ด้านบน และก็ จำนวน ด้วยนะ"), which the column view honours by stacking
+ *  percent over count; the horizontal view has one line, so it leads with the percent instead of
+ *  flipping the pair round and formatting the identical datum two different ways. */
+function fmtPctCount(n: number, total: number): string {
+  return `${pctText(n, total)} (${n})`
+}
+
 export default function GroupImpactTable({ widgetId, rows }: GroupImpactTableProps) {
-  const [type, setType] = useChartType(widgetId, 'table')
+  // Deck slide 17: the grouped column chart is the default view now, not the table.
+  const [type, setType] = useChartType(widgetId, 'bar', ['bar', 'hbar', 'table'])
 
   const totalDeaths = rows.reduce((s, r) => s + r.deaths, 0)
   const totalInjured = rows.reduce((s, r) => s + r.injured, 0)
   const maxVal = Math.max(1, ...rows.map((r) => Math.max(r.deaths, r.injured)))
 
   const option = useMemo(() => {
-    const categories = rows.map((r) => r.group)
     const horizontal = type === 'hbar'
+    // Seven Thai group names on a category axis: wrapped, never rotated away or truncated
+    // ("ดูการตัดคำให้ด้วย" — deck slide 20's instruction applies to every long-label axis here).
     const catAxis = {
       type: 'category' as const,
-      data: categories,
-      axisLabel: { fontFamily: FONT, fontSize: LABEL_SIZE, interval: 0, ...(horizontal ? {} : { rotate: 20 }) },
+      data: rows.map((r) => r.group),
+      axisLabel: {
+        fontFamily: FONT,
+        fontSize: LABEL_SIZE,
+        interval: 0,
+        formatter: (name: string) => wrapThaiLabel(name, horizontal ? 16 : 10),
+      },
       axisTick: { alignWithLabel: true },
     }
     const valAxis = { type: 'value' as const, axisLabel: { fontFamily: FONT, fontSize: LABEL_SIZE } }
@@ -76,15 +106,26 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
     const deathsName = `ผู้เสียชีวิต (% ของ${DEATH_BASE_SHORT})`
     const injuredName = `ผู้ได้รับบาดเจ็บ (% ของ${INJURED_BASE_SHORT})`
 
+    const barLabel = {
+      show: true,
+      position: horizontal ? ('right' as const) : ('top' as const),
+      fontFamily: FONT,
+      fontSize: LABEL_SIZE,
+      color: '#334155',
+      lineHeight: 18,
+    }
+
     return {
       textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE },
-      grid: { left: horizontal ? 150 : 30, right: horizontal ? 60 : 20, top: 56, bottom: 16, containLabel: true },
+      // `right` on the horizontal variant must clear the whole bar label that sits outside the bar:
+      // the widest case ("78.9% (672)") measures ~95px at 14px Prompt, so 64 clipped it.
+      grid: { left: horizontal ? 16 : 8, right: horizontal ? 104 : 16, top: 64, bottom: 8, containLabel: true },
       legend: { top: 4, textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE } },
       tooltip: {
         trigger: 'axis' as const,
         axisPointer: { type: 'shadow' as const },
         formatter: (params: { seriesName?: string; value?: number; axisValueLabel?: string; name?: string }[]) => {
-          const head = params[0]?.axisValueLabel ?? params[0]?.name ?? ''
+          const head = (params[0]?.axisValueLabel ?? params[0]?.name ?? '').replace(/\n/g, ' ')
           const lines = params.map((p) => {
             const isDeaths = (p.seriesName ?? '').startsWith('ผู้เสียชีวิต')
             const value = typeof p.value === 'number' ? p.value : 0
@@ -107,14 +148,14 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
           data: rows.map((r) => r.deaths),
           itemStyle: { color: PALETTE.severity.black, borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0] },
           label: {
-            show: true,
-            position: horizontal ? ('right' as const) : ('top' as const),
-            fontFamily: FONT,
-            fontSize: LABEL_SIZE,
-            color: '#334155',
+            ...barLabel,
             formatter: (p: { value: number }) => {
               if (!p.value || p.value <= 0) return ''
-              return horizontal ? fmtCountPct(p.value, totalDeaths) : `${p.value}\n(${pctText(p.value, totalDeaths)})`
+              // Percent first in BOTH orientations (the deck asks for it "ด้านบน"): stacked over
+              // the raw count on a column, beside it on a horizontal bar.
+              return horizontal
+                ? fmtPctCount(p.value, totalDeaths)
+                : `${pctText(p.value, totalDeaths)}\n${p.value}`
             },
           },
         },
@@ -124,14 +165,12 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
           data: rows.map((r) => r.injured),
           itemStyle: { color: PALETTE.severity.yellow, borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0] },
           label: {
-            show: true,
-            position: horizontal ? ('right' as const) : ('top' as const),
-            fontFamily: FONT,
-            fontSize: LABEL_SIZE,
-            color: '#334155',
+            ...barLabel,
             formatter: (p: { value: number }) => {
               if (!p.value || p.value <= 0) return ''
-              return horizontal ? fmtCountPct(p.value, totalInjured) : `${p.value}\n(${pctText(p.value, totalInjured)})`
+              return horizontal
+                ? fmtPctCount(p.value, totalInjured)
+                : `${pctText(p.value, totalInjured)}\n${p.value}`
             },
           },
         },
@@ -139,34 +178,51 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
     }
   }, [rows, type, totalDeaths, totalInjured])
 
+  // A horizontal chart needs vertical room per category, otherwise seven groups collapse into an
+  // unreadable stack; the column chart needs room for the wrapped axis labels under it.
+  const chartHeight = type === 'hbar' ? Math.max(360, rows.length * 64 + 90) : 420
+
   return (
     <Card
-      title="ผู้เสียชีวิต / บาดเจ็บ ตามกลุ่มผู้ป่วย"
-      subtitle="5 กลุ่มผู้ป่วย · เฉพาะเหตุการณ์ที่ระบุกลุ่มผู้ป่วย"
+      title="ผู้เสียชีวิตและบาดเจ็บ จำแนกตามกลุ่มผู้ป่วย"
       icon={HeartCrack}
       accent="s1"
-      right={<Switcher current={type} onChange={setType} />}
+      headerTone="brand"
+      right={<ChartSwitcher options={SWITCH_OPTIONS} current={type} onChange={setType} />}
     >
       {type === 'table' ? (
-        <div className="flex-1 flex flex-col justify-center">
+        <div className="flex flex-1 flex-col justify-center">
           <TableView rows={rows} totalDeaths={totalDeaths} totalInjured={totalInjured} maxVal={maxVal} />
         </div>
       ) : (
-        <ReactECharts option={option} style={{ height: '100%', minHeight: 340, flex: 1 }} notMerge lazyUpdate />
+        <ReactECharts
+          option={option}
+          style={{ height: chartHeight, width: '100%' }}
+          notMerge
+          lazyUpdate
+        />
       )}
-      <DenominatorNote className="mt-3 text-left">
-        ร้อยละคิดแยกรายคอลัมน์จากผู้ที่อยู่ในเหตุการณ์ซึ่งระบุกลุ่มผู้ป่วยเท่านั้น: {DEATH_BASE_FULL} {totalDeaths} ราย
-        และ{INJURED_BASE_FULL} {totalInjured} ราย (1 เหตุการณ์ถูกนับในกลุ่มผู้ป่วยเดียว แต่ละคอลัมน์จึงรวมได้ 100%)
-        ทั้งนี้เหตุการณ์ที่ไม่ได้ระบุกลุ่มผู้ป่วยจะไม่ถูกนับในตารางนี้ ยอดรวมจึงอาจน้อยกว่าผู้เสียชีวิต/บาดเจ็บทั้งหมดตามตัวกรอง
-      </DenominatorNote>
     </Card>
   )
 }
 
-function Switcher({ current, onChange }: { current: ChartType; onChange: (t: ChartType) => void }) {
+/**
+ * Small icon switcher for widgets that build their own ECharts option instead of going through
+ * SwitchableChart. Exported so the Section-1 donut / 7-group cards use the same control rather
+ * than a third copy of it.
+ */
+export function ChartSwitcher({
+  options,
+  current,
+  onChange,
+}: {
+  options: SwitchOption[]
+  current: ChartType
+  onChange: (t: ChartType) => void
+}) {
   return (
     <div className="flex items-center gap-1 rounded-full bg-slate-100 p-1">
-      {SWITCH_OPTIONS.map(({ type, icon: Icon, label }) => (
+      {options.map(({ type, icon: Icon, label }) => (
         <button
           key={type}
           type="button"

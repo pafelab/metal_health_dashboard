@@ -1,12 +1,19 @@
 // SPEC 6.4 #1 — เป้าหมายการดำเนินงานในแต่ละพื้นที่ (ทันเวลา).
 // Percent to two decimals, level, the lucide face icon + colour from TIMELINESS_LEVELS,
-// the '(ดำเนินการทันเวลา {pass} จากรวมทั้งหมด {total} เหตุการณ์)' line, 'ไม่มีข้อมูล' when
-// total = 0, plus a small legend table of the six SPEC 6.4 criteria rows.
+// the '(ดำเนินการทันเวลา {pass} จากรวมทั้งหมด {total} เหตุการณ์)' line, and 'ไม่มีข้อมูล' when
+// total = 0.
 //
 // UX-11: 'ระดับ 0.5' is a score on the SPEC 6.4 scale, not a percentage, and its denominator is
 // only the events that carry reporting data (Social Listening + ภัยอื่นๆ combined) — which is why
-// it can quote more events than a single section below it. Both facts are stated on the card, and
+// it can quote more events than a single section above it. Both facts are stated on the card, and
 // the scale bounds are derived from TIMELINESS_LEVELS so they cannot drift from the config.
+//
+// WAVE 2 — the card used to end with its own six-row table of the SPEC 6.4 criteria. Review deck
+// slide 23 adds a "เกณฑ์การให้คะแนน" legend of the SAME table to ZoneScoreSection, which now sits
+// directly below this card on the zone tab; two copies of one legend, a screen apart, is noise. The
+// legend therefore lives in ZoneScoreSection only, and `rangeLabel` moved to config/timeliness.ts
+// (next to the descending-order invariant it depends on) so both could have shared it. Losing the
+// table also takes ~300px off the card — the UX-09 placement reason below is unaffected.
 
 import * as LucideIcons from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -14,7 +21,6 @@ import Card from '@/components/layout/Card'
 import DenominatorNote from '@/components/widgets/DenominatorNote'
 import type { TimelinessResult } from '@/types'
 import { TIMELINESS_LEVELS } from '@/config'
-import type { TimelinessLevelDef } from '@/config'
 
 export interface TimelinessCardProps {
   result: TimelinessResult
@@ -26,17 +32,9 @@ function iconFor(name: string): LucideIcon {
   return ICONS[name] ?? LucideIcons.Meh
 }
 
-/** SPEC 6.4 table's percent-range text, derived from TIMELINESS_LEVELS thresholds (data-driven,
- *  not hardcoded) so the legend can never drift from the config the score itself is computed
- *  against. */
-function rangeLabel(levels: TimelinessLevelDef[], i: number): string {
-  const cur = levels[i]
-  if (i === 0) return `≥ ${cur.min.toFixed(2)}`
-  if (cur.min === -Infinity) return `< ${levels[i - 1].min.toFixed(2)}`
-  return `${cur.min.toFixed(2)} – ${(levels[i - 1].min - 0.01).toFixed(2)}`
-}
-
-/** Bounds of the score scale, taken from the config rows (highest threshold first). */
+/** Bounds of the score scale, taken from the config rows (highest threshold first). Both are
+ *  printed as numbers in the Thai sentences below, so TIMELINESS_LEVELS' `level` must stay the
+ *  numeric score string. */
 const SCALE_MIN = TIMELINESS_LEVELS[TIMELINESS_LEVELS.length - 1].level
 const SCALE_MAX = TIMELINESS_LEVELS[0].level
 
@@ -46,7 +44,7 @@ export default function TimelinessCard({ result }: TimelinessCardProps) {
   const hasData = total > 0 && percent !== null
 
   return (
-    <Card title="เป้าหมายการดำเนินงานในแต่ละพื้นที่ (ทันเวลา)" icon={LucideIcons.Target} accent="neutral">
+    <Card title="เป้าหมายการดำเนินงานในแต่ละพื้นที่ (ทันเวลา)" icon={LucideIcons.Target} accent="neutral" headerTone="brand">
       <div className="flex flex-col items-center gap-4 py-2 text-center sm:flex-row sm:items-center sm:text-left">
         <div
           className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full"
@@ -79,51 +77,11 @@ export default function TimelinessCard({ result }: TimelinessCardProps) {
 
       {hasData && (
         <DenominatorNote className="mt-3 text-left">
-          คำนวณจากเหตุการณ์ที่มีข้อมูลการส่งรายงาน {total} เหตุการณ์ (Social Listening + ภัยอื่นๆ ตามตัวกรองที่ใช้)
-          จำนวนนี้จึงต่างจากจำนวนเหตุการณ์ของแต่ละส่วนด้านล่างได้
+          คำนวณจากเหตุการณ์ที่มีข้อมูลการส่งรายงาน {total} เหตุการณ์ (Social Listening + ภัยอื่นๆ ตามฟิลเตอร์ที่ใช้)
+          จำนวนนี้จึงต่างจากจำนวนเหตุการณ์ของแต่ละส่วนด้านบนได้ · เกณฑ์แปลงร้อยละเป็นคะแนนระดับ {SCALE_MIN}–
+          {SCALE_MAX} อยู่ในหัวข้อ “การประเมินผลการรายงานข่าว (13 เขตสุขภาพ)” ด้านล่าง
         </DenominatorNote>
       )}
-
-      <div className="relative mt-6 overflow-x-auto">
-        <table className="w-full min-w-[420px] text-tableText">
-          <caption className="mb-2 text-left text-sm font-medium text-slate-600">
-            เกณฑ์แปลงร้อยละเป็นคะแนนระดับ ({SCALE_MIN}–{SCALE_MAX})
-          </caption>
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-slate-600">
-              <th className="py-2 pr-4 font-medium">ร้อยละที่ทันเวลา</th>
-              <th className="py-2 pr-4 font-medium">คะแนนระดับ</th>
-              <th className="py-2 pr-4 font-medium">สี</th>
-              <th className="py-2 font-medium">สัญลักษณ์</th>
-            </tr>
-          </thead>
-          <tbody>
-            {TIMELINESS_LEVELS.map((l, i) => {
-              const RowIcon = iconFor(l.icon)
-              const active = hasData && l.level === level
-              return (
-                <tr
-                  key={l.level}
-                  className={`border-b border-slate-50 last:border-0 ${active ? 'bg-slate-50 font-semibold' : ''}`}
-                >
-                  <td className="py-2 pr-4 whitespace-nowrap">
-                    {rangeLabel(TIMELINESS_LEVELS, i)}
-                    {/* Text marker, not colour alone, for the row matching the current score. */}
-                    {active && <span className="ml-2 text-xs font-bold text-s1-700">· ระดับปัจจุบัน</span>}
-                  </td>
-                  <td className="py-2 pr-4">{l.level}</td>
-                  <td className="py-2 pr-4">
-                    <span className="inline-block h-3 w-3 rounded-full align-middle" style={{ backgroundColor: l.color }} aria-hidden="true" />
-                  </td>
-                  <td className="py-2">
-                    <RowIcon size={18} color={l.color} strokeWidth={1.75} aria-hidden="true" />
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
     </Card>
   )
 }

@@ -1,8 +1,14 @@
-// App shell (SPEC 5.1): SheetDataProvider + Sidebar + PageHeader + hash routing across the 5
-// pages. Both per-tab filter states (Dashboard, zone) live here so they survive switching tabs
-// (site 2's behaviour — a tab is hidden/shown, never unmounted+remounted) even though only the
-// active page is actually rendered (keeping ~30 ECharts instances from ever sitting in a
-// display:none container, which breaks their sizing).
+// App shell (SPEC 5.1): SheetDataProvider + PageHeader + hash routing across the 5 pages. Both
+// per-tab filter states (Dashboard, zone) live here so they survive switching tabs (site 2's
+// behaviour — a tab is hidden/shown, never unmounted+remounted) even though only the active page
+// is actually rendered (keeping ~30 ECharts instances from ever sitting in a display:none
+// container, which breaks their sizing).
+//
+// Deck slide 11 ("แถบซ้ายมือ ตัดออกให้หมด"): the left sidebar is deleted. Navigation moved into
+// PageHeader's nav row, and the content column is now full-width — no flex wrapper, no outer
+// max-width cap, because the deck asks for the largest possible chart area. Every page keeps its
+// own `px-4 sm:px-6` gutter, which is what the header and the filter bar use too, so they all
+// still line up.
 //
 // UX-03: no data-driven page renders before the first successful response (a skeleton stands in,
 // so temporary zeros can never read as "no incidents"), a failed first load gets a retry panel,
@@ -16,7 +22,6 @@ import { useHashRoute } from '@/hooks/useHashRoute'
 import { useFilters } from '@/hooks/useFilters'
 import { resetChartTypes } from '@/hooks/useChartType'
 import { MONTH_ABBR, NAV_TABS } from '@/config'
-import Sidebar from '@/components/layout/Sidebar'
 import PageHeader from '@/components/layout/PageHeader'
 import LoadingSkeleton from '@/components/layout/LoadingSkeleton'
 import DashboardPage from '@/pages/DashboardPage'
@@ -62,7 +67,6 @@ function formatUpdatedAt(d: Date | null): string | null {
 function Shell() {
   const { sl, hz, loading, error, updatedAt, reload, status, hasLoaded } = useSheetData()
   const [hash, navigate] = useHashRoute()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Each tab's OWN filter state (SPEC 5.2): Dashboard defaults to เขตสุขภาพ = ทั้งหมด, the zone
   // tab defaults to เขตสุขภาพที่ 1. Held here (not inside the page components) so navigating away
@@ -71,7 +75,6 @@ function Shell() {
   const zoneFilters = useFilters({ zone: 1 })
 
   useEffect(() => {
-    setSidebarOpen(false)
     window.scrollTo(0, 0)
   }, [hash])
 
@@ -90,7 +93,10 @@ function Shell() {
 
   const activeTab = NAV_TABS.find((t) => t.hash === hash) ?? NAV_TABS[0]
   const zoneTitle =
-    zoneFilters.applied.zone === 'all' ? 'สถานการณ์รายเขต (ภาพรวม)' : `สถานการณ์รายเขต (เขต ${zoneFilters.applied.zone})`
+    // Deck slide 10: "เขต N" is spelled out as "เขตสุขภาพที่ N" everywhere it is shown to a reader.
+    zoneFilters.applied.zone === 'all'
+      ? 'สถานการณ์รายเขต (ภาพรวม)'
+      : `สถานการณ์รายเขต (เขตสุขภาพที่ ${zoneFilters.applied.zone})`
   const title = hash === '#/zone' ? zoneTitle : activeTab.label
 
   const updatedAtLabel = useMemo(() => formatUpdatedAt(updatedAt), [updatedAt])
@@ -100,92 +106,92 @@ function Shell() {
   const showSkeleton = needsData && !hasLoaded && !showInitialError
 
   return (
-    <div className="flex min-h-screen bg-canvas">
-      <Sidebar active={hash} onNavigate={navigate} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex-1 min-w-0 relative">
-        <PageHeader
-          title={title}
-          // UX-15: data controls (timestamp, refresh pill, reload) belong only to the routes whose
-          // content comes from the sheet — on เกณฑ์และแบบฟอร์ม / ติดต่อเรา a reload changes nothing
-          // on screen, so the control is not offered there at all.
-          updatedAt={needsData ? updatedAtLabel : null}
-          showReload={needsData}
-          onReload={reload}
-          loading={loading}
-          refreshing={needsData && status === 'refreshing'}
-          onMenu={() => setSidebarOpen(true)}
-          right={
-            CHART_ROUTES.includes(hash) ? (
-              <button
-                type="button"
-                onClick={() => resetChartTypes()}
-                title="รีเซ็ตรูปแบบกราฟทุกการ์ดกลับเป็นค่าเริ่มต้น"
-                className="shrink-0 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-              >
-                <RotateCcw size={18} aria-hidden="true" />
-                <span className="hidden sm:inline">รีเซ็ตรูปแบบกราฟ</span>
-              </button>
-            ) : undefined
-          }
-        />
-
-        {/* Error AFTER a successful load: the data stays on screen, the banner offers a retry.
-            Only on data-backed routes (UX-15) — its retry is the same page-level action. */}
-        {needsData && error && !showInitialError && (
-          <div className="mx-4 sm:mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <AlertTriangle size={18} className="shrink-0" aria-hidden="true" />
-              {error}
-            </div>
+    <div className="min-h-screen min-w-0 relative bg-canvas">
+      <PageHeader
+        title={title}
+        // The header's nav row is the only navigation UI now that the sidebar is gone.
+        activeHash={hash}
+        onNavigate={navigate}
+        // UX-15: data controls (timestamp, refresh pill, reload) belong only to the routes whose
+        // content comes from the sheet — on เกณฑ์และแบบฟอร์ม / ติดต่อเรา a reload changes nothing
+        // on screen, so the control is not offered there at all.
+        updatedAt={needsData ? updatedAtLabel : null}
+        showReload={needsData}
+        onReload={reload}
+        loading={loading}
+        refreshing={needsData && status === 'refreshing'}
+        right={
+          // UX-15: this is the ONLY entry point for resetting the per-widget chart types, so it
+          // stays in the header on every route that actually owns analytical charts.
+          CHART_ROUTES.includes(hash) ? (
             <button
               type="button"
-              onClick={reload}
-              disabled={loading}
-              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60 transition-colors"
+              onClick={() => resetChartTypes()}
+              title="รีเซ็ตรูปแบบกราฟทุกการ์ดกลับเป็นค่าเริ่มต้น"
+              className="shrink-0 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
             >
-              <RefreshCw size={14} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />{' '}
-              ลองใหม่
+              <RotateCcw size={18} aria-hidden="true" />
+              <span className="hidden lg:inline">รีเซ็ตรูปแบบกราฟ</span>
             </button>
-          </div>
-        )}
+          ) : undefined
+        }
+      />
 
-        <main>
-          {showInitialError ? (
-            <div className="mx-4 sm:mx-6 my-10 max-w-2xl rounded-card border border-rose-200 bg-white p-6 shadow-card">
-              <div className="flex items-start gap-3">
-                <AlertTriangle size={24} className="mt-0.5 shrink-0 text-rose-600" aria-hidden="true" />
-                <div className="min-w-0 space-y-2">
-                  <h3 className="font-sans text-cardTitle font-bold text-slate-800">โหลดข้อมูลไม่สำเร็จ</h3>
-                  <p className="text-sm text-slate-600 leading-relaxed">{error}</p>
-                  <p className="text-sm text-slate-600 leading-relaxed">
-                    ยังไม่มีข้อมูลแสดงบนหน้านี้ ตัวเลขทั้งหมดจะปรากฏเมื่อโหลดข้อมูลสำเร็จ
-                  </p>
-                  <button
-                    type="button"
-                    onClick={reload}
-                    disabled={loading}
-                    className="mt-2 inline-flex items-center gap-2 rounded-xl bg-s1-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-s1-800 disabled:opacity-60 transition-colors"
-                  >
-                    <RefreshCw size={16} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />
-                    {loading ? 'กำลังโหลด...' : 'ลองใหม่'}
-                  </button>
-                </div>
+      {/* Error AFTER a successful load: the data stays on screen, the banner offers a retry.
+          Only on data-backed routes (UX-15) — its retry is the same page-level action. */}
+      {needsData && error && !showInitialError && (
+        <div className="mx-4 sm:mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle size={18} className="shrink-0" aria-hidden="true" />
+            {error}
+          </div>
+          <button
+            type="button"
+            onClick={reload}
+            disabled={loading}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60 transition-colors"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />{' '}
+            ลองใหม่
+          </button>
+        </div>
+      )}
+
+      <main>
+        {showInitialError ? (
+          <div className="mx-4 sm:mx-6 my-10 max-w-2xl rounded-card border border-rose-200 bg-white p-6 shadow-card">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={24} className="mt-0.5 shrink-0 text-rose-600" aria-hidden="true" />
+              <div className="min-w-0 space-y-2">
+                <h3 className="font-sans text-cardTitle font-bold text-slate-800">โหลดข้อมูลไม่สำเร็จ</h3>
+                <p className="text-sm text-slate-600 leading-relaxed">{error}</p>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  ยังไม่มีข้อมูลแสดงบนหน้านี้ ตัวเลขทั้งหมดจะปรากฏเมื่อโหลดข้อมูลสำเร็จ
+                </p>
+                <button
+                  type="button"
+                  onClick={reload}
+                  disabled={loading}
+                  className="mt-2 inline-flex items-center gap-2 rounded-xl bg-s1-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-s1-800 disabled:opacity-60 transition-colors"
+                >
+                  <RefreshCw size={16} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" />
+                  {loading ? 'กำลังโหลด...' : 'ลองใหม่'}
+                </button>
               </div>
             </div>
-          ) : showSkeleton ? (
-            <LoadingSkeleton />
-          ) : (
-            <>
-              {hash === '#/dashboard' && <DashboardPage sl={sl} hz={hz} filters={dashboardFilters} />}
-              {hash === '#/zone' && <ZonePage sl={sl} hz={hz} filters={zoneFilters} />}
-              {hash === '#/report' && <ReportPage />}
-              {hash === '#/mcatt' && <McattPage />}
-              {hash === '#/contact' && <ContactPage />}
-            </>
-          )}
-        </main>
-      </div>
+          </div>
+        ) : showSkeleton ? (
+          <LoadingSkeleton />
+        ) : (
+          <>
+            {hash === '#/dashboard' && <DashboardPage sl={sl} hz={hz} filters={dashboardFilters} />}
+            {hash === '#/zone' && <ZonePage sl={sl} hz={hz} filters={zoneFilters} />}
+            {hash === '#/report' && <ReportPage />}
+            {hash === '#/mcatt' && <McattPage />}
+            {hash === '#/contact' && <ContactPage />}
+          </>
+        )}
+      </main>
 
       {/* Politeness channel for state changes that have no visible focus target (UX-03). */}
       <div role="status" aria-live="polite" className="sr-only">

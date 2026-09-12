@@ -9,11 +9,33 @@
  *
  * RUN WITH:   npx tsx scripts/verify-data.ts
  *
- * How that works: the `@/*` alias lives in tsconfig.app.json, but tsx reads tsconfig.json from
- * the cwd, and the root tsconfig.json is a solution file (`"files": []`, no `paths`). tsconfig
- * files may not be edited, so this file re-execs itself once through tsx with an explicit
- * `--tsconfig tsconfig.app.json`, inherits the child's stdio and propagates its exit code.
- * Everything below the re-exec block therefore uses `await import(...)` — a static `@/...`
+ * ---------------------------------------------------------------------------------------------
+ * RE-BASELINED 2026-09-12 for the restructured sheet (docs/BUILD_NOTES.md "SHEET SCHEMA
+ * REFRESHED 2026-09-12"). Two structural changes to the gate itself:
+ *
+ * 1. THE FIXTURE MOVED. src/config/sheet.ts has GID_SHEET2 === GID_WIDE === 842224166, so
+ *    production parses Section 1 AND Section 2 out of the SAME tab. This gate used to feed
+ *    parseSheet2() the legacy narrow tab docs/data/1683387958.csv (37 columns, 440 rows), which
+ *    the app never fetches. That made section `o` ("no silent index fallback") a FALSE GREEN:
+ *    the legacy header carries all the old SPEC 3.2 names at their old indexes, so every name
+ *    resolved there while the live 85-column header shares not one of them. Section 1 is now
+ *    parsed from docs/data/842224166.csv (85 columns, 580 Section-1 rows) — production reality —
+ *    and the other two fixtures are exercised in section `r` as DEGRADATION checks instead.
+ *
+ * 2. THE SEMANTICS MOVED. riskFactors() is 4 FLAG columns (74-77) over the 4 psychiatric/
+ *    substance ประเภทผู้ป่วย statuses; warningSigns() is 5 FLAG columns (78-82) over all rows;
+ *    zoneCounts() labels buckets 'เขตสุขภาพที่ N'. Every raw recompute below was rewritten to
+ *    re-derive these from the FLAG COLUMNS — it never calls the app aggregate it is checking.
+ *
+ * GATE RULE (unchanged): a defect in src/ is a hard FAIL; a defect in the SOURCE SHEET that the
+ * code handles correctly is a loud WARN. If an assertion fails because a documented number is
+ * wrong about the real data, say so explicitly and mark ok:false anyway — a human needs to see it.
+ *
+ * How the alias bootstrap works: the `@/*` alias lives in tsconfig.app.json, but tsx reads
+ * tsconfig.json from the cwd, and the root tsconfig.json is a solution file (`"files": []`, no
+ * `paths`). tsconfig files may not be edited, so this file re-execs itself once through tsx with
+ * an explicit `--tsconfig tsconfig.app.json`, inherits the child's stdio and propagates its exit
+ * code. Everything below the re-exec block therefore uses `await import(...)` — a static `@/...`
  * import would fail to resolve in the parent process before any of this code could run.
  */
 
@@ -47,16 +69,26 @@ const {
   parseSheet2,
   parseWide,
   parseMcatt,
+  buildResolver,
   latestDataMonth,
+  earliestDataMonth,
+  coverageWindow,
+  futureDatedRows,
+  outOfPeriodRows,
   ageBandByGender,
+  ageBandCounts,
   countBy,
   topN,
   psychiatricDiagnosisCounts,
+  patientStatusCounts,
+  patientGroup7Counts,
+  impactByGroup7,
   severityCounts,
   computeTimeliness,
   suicideSubset,
   monthlyTrend,
   hazardTypeCounts,
+  hazardCasualties,
   provinceCounts,
   zoneCounts,
   riskFactors,
@@ -65,6 +97,7 @@ const {
   impactByPatientGroup,
   applyFilters,
   collapseWs,
+  collapseDoubledMarks,
   normProvince,
   parseAge,
   parseMonth,
@@ -78,12 +111,18 @@ const {
   ZONE_PROVINCES,
   ALL_PROVINCES,
   CATEGORY_ORDERS,
+  RISK_DENOMINATOR_STATUSES,
   HAZARD_TYPES,
   HAZARD_UNSPECIFIED_LABEL,
   MONTH_ABBR,
   TIMELINESS_LEVELS,
+  AGE_BANDS,
   RISK_KEYWORDS,
   SIGN_KEYWORDS,
+  GID_SHEET2,
+  GID_WIDE,
+  GID_WIDE_FALLBACK,
+  formatZoneLabel,
 } = await import('@/config')
 
 // ---------------------------------------------------------------------------- harness
@@ -127,35 +166,75 @@ function readCsv(file: string, skipEmptyLines = false): string[][] {
   return Papa.parse<string[]>(text, { header: false, skipEmptyLines }).data
 }
 
-const sheet2Rows = readCsv('1683387958.csv')
+/**
+ * THE tab the app fetches. fetchAllData() takes the `GID_SHEET2 === GID_WIDE` branch and hands
+ * the SAME rows to parseSheet2 and parseWide, so one fixture drives both sections here too.
+ */
 const wideRows = readCsv('842224166.csv')
+/** Legacy 84-column tab a failed primary fetch degrades to — exercised in section r, not here. */
+const fallbackRows = readCsv('1523955266.csv')
+/** The 37-column narrow ชีต2 tab the app no longer fetches — also section r only. */
+const legacyRows = readCsv('1683387958.csv')
 
 /** Raw-CSV cell reader used ONLY by the independent recomputations below (shares no code with src/). */
 const raw = (r: string[], i: number): string => (typeof r[i] === 'string' ? r[i].trim() : '')
-const s2Data = sheet2Rows.slice(1)
 const wideData = wideRows.slice(1)
 
+/**
+ * The raw Section-1 row set, derived here with the same MEMBERSHIP RULE parseSheet2 documents
+ * ("row must carry a จังหวัด or a หัวข้อข่าว") but with independent code. Every "independent
+ * recompute" below iterates THIS, never `events`.
+ */
+const s1Data = wideData.filter((r) => raw(r, 3) !== '' || raw(r, 4) !== '')
+
 section('CSV load')
-info('ชีต2 raw rows (incl. header)', sheet2Rows.length)
-info('ชีต2 header columns', sheet2Rows[0].length)
+assert(
+  '0. the gate parses the tab fetchSheet.ts actually fetches (GID_SHEET2 === GID_WIDE === 842224166)',
+  '842224166 / 842224166',
+  `${GID_SHEET2} / ${GID_WIDE}`,
+  GID_SHEET2 === 842224166 && GID_WIDE === 842224166,
+)
 info('wide raw rows (incl. header)', wideRows.length)
 info('wide header columns', wideRows[0].length)
+eq('0b. the refreshed wide tab has 85 columns (was 84 before 2026-09-12)', 85, wideRows[0].length)
+info('raw Section-1 rows (col 3 or col 4 non-empty)', s1Data.length)
+info('fallback tab columns', fallbackRows[0].length)
+info('legacy narrow tab columns', legacyRows[0].length)
 
-const events: SLEvent[] = parseSheet2(sheet2Rows)
+const events: SLEvent[] = parseSheet2(wideRows)
 const hazards: HazardEvent[] = parseWide(wideRows)
 const people: McattPerson[] = parseMcatt(wideRows)
 
 // ---------------------------------------------------------------------------- a
 
-section('a. parseSheet2 -> 440 events')
-eq('a. parseSheet2(ชีต2).length', 440, events.length)
-const rawNonEmptyS2 = s2Data.filter((r) => r.some((cv) => (cv ?? '').trim() !== '')).length
+section('a. parseSheet2 -> 580 Section-1 events')
+eq('a. parseSheet2(wide tab).length', 580, events.length)
 assert(
-  'a2. ...and that equals the raw count of non-empty ชีต2 data rows',
-  String(rawNonEmptyS2),
+  'a2. ...and that equals the raw count of wide rows carrying a จังหวัด or a หัวข้อข่าว (cols 3/4)',
+  String(s1Data.length),
   String(events.length),
-  events.length === rawNonEmptyS2,
+  events.length === s1Data.length,
 )
+// The membership rule is what keeps Section-2-only and MCATT-only rows out of Section 1. It can
+// also silently DROP data, so prove no excluded row carries Section-1 content of its own.
+{
+  const dropped = wideData
+    .map((r, i) => ({ i, r }))
+    .filter(({ r }) => raw(r, 3) === '' && raw(r, 4) === '')
+    .map(({ i, r }) => ({
+      row: i + 1,
+      cells: [1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        .filter((c) => raw(r, c) !== '')
+        .map((c) => `${c}=${JSON.stringify(raw(r, c))}`),
+    }))
+    .filter((x) => x.cells.length > 0)
+  assert(
+    'a3. the col-3/4 membership rule drops NO wide row that carries other Section-1 content (cols 1-2, 5-16)',
+    '[]',
+    JSON.stringify(dropped.slice(0, 5)),
+    dropped.length === 0,
+  )
+}
 
 // ---------------------------------------------------------------------------- b
 
@@ -182,7 +261,7 @@ info(
 // The col-35/36 rule is a MEMBERSHIP test, so it can silently DROP data: a wide row carrying a
 // month/year/link/severity/reporting/hazard-flag value (cols 33-34, 37-46) but no province and no
 // headline would never reach Section 2. Col 32 (zone) is excluded from this test — it is filled
-// down the whole human-hazard block and is non-empty on 559 rows that hold no Section-2 event.
+// down the whole human-hazard block and is non-empty on rows that hold no Section-2 event.
 {
   const dropped = wideData
     .map((r, i) => ({ i, r }))
@@ -199,6 +278,38 @@ info(
     '[]',
     JSON.stringify(dropped.slice(0, 5)),
     dropped.length === 0,
+  )
+}
+// The Section-1 and Section-2 blocks sit SIDE BY SIDE in the same physical rows, so both parsers
+// read the same row objects and a single wrong column index would cross-contaminate one section
+// with the other's data. On this fixture all 73 shared rows carry a DIFFERENT จังหวัด in each
+// block, which makes province the perfect tracer: if either parser ever read the other's column,
+// the two independent province tallies below would diverge.
+{
+  const both = wideData.filter((r) => (raw(r, 3) !== '' || raw(r, 4) !== '') && (raw(r, 35) !== '' || raw(r, 36) !== ''))
+  const differing = both.filter((r) => normProvince(raw(r, 3)) !== normProvince(raw(r, 35)))
+  assert(
+    'b4. 73 wide rows carry BOTH blocks side by side, and all 73 name a different จังหวัด in each — usable as a cross-read tracer',
+    '73 shared rows, 73 with differing จังหวัด',
+    `${both.length} shared rows, ${differing.length} with differing จังหวัด`,
+    both.length === 73 && differing.length === 73,
+  )
+  const tally = (rows: string[][], col: number): [string, number][] => {
+    const m = new Map<string, number>()
+    for (const r of rows) {
+      const p = normProvince(raw(r, col))
+      if (p === '') continue
+      m.set(p, (m.get(p) ?? 0) + 1)
+    }
+    return [...m.entries()].sort()
+  }
+  const slTally = provinceCounts(events).filter((c) => c.value > 0).map((c) => [c.name, c.value] as [string, number]).sort()
+  const hzTally = provinceCounts(hazards).filter((c) => c.value > 0).map((c) => [c.name, c.value] as [string, number]).sort()
+  eq('b5. Section-1 province tally comes from col 3 ONLY (no leak from the Section-2 col 35)', tally(s1Data, 3), slTally)
+  eq(
+    'b6. Section-2 province tally comes from col 35 ONLY (no leak from the Section-1 col 3)',
+    tally(wideData.filter((r) => raw(r, 35) !== '' || raw(r, 36) !== ''), 35),
+    hzTally,
   )
 }
 
@@ -282,10 +393,11 @@ info('stripListNumbering("ุ6. นางสาวพิมพ์ทิชา")'
 
 // ---------------------------------------------------------------------------- d
 
-section('d. latestDataMonth (SPEC 3.5)')
+section('d. latestDataMonth / earliestDataMonth / coverageWindow (SPEC 3.5, UX-02)')
 const latest = latestDataMonth(events)
 info('now (system)', new Date().toISOString().slice(0, 10))
-eq('d. latestDataMonth(ชีต2)', 'มิถุนายน 2569', latest)
+eq('d. latestDataMonth(wide tab)', 'กันยายน 2569', latest)
+eq('d1b. earliestDataMonth(wide tab)', 'ตุลาคม 2568', earliestDataMonth(events))
 const monthYearTally = new Map<string, number>()
 for (const e of events) monthYearTally.set(`${e.month}/${e.year}`, (monthYearTally.get(`${e.month}/${e.year}`) ?? 0) + 1)
 info('month/year tally (month/BE-year)', [...monthYearTally.entries()].sort())
@@ -297,21 +409,50 @@ assert(
   latestBack,
   latestBack === 'ธันวาคม 2568',
 )
+// d3 CHANGED MEANING with the fixture. The legacy narrow tab carried 2 future-dated ธ.ค. 2569
+// rows; the refreshed wide tab has NONE, so the old "the bad rows are suppressed" assertion has
+// no data to bite on here. Assert the clean state, then prove the suppression rule still WORKS
+// with a synthetic row — otherwise this check would silently become vacuous on clean data.
 assert(
-  'd3. the future-dated ธ.ค. 2569 rows are NOT reported as latest',
-  'not ธันวาคม 2569',
-  latest,
-  latest !== 'ธันวาคม 2569',
+  'd3. the refreshed wide tab carries NO future-dated Section-1 row (the legacy tab had 2)',
+  '0',
+  String(futureDatedRows(events).length),
+  futureDatedRows(events).length === 0,
 )
-// d4 (verification gate): d/d3 pass ONLY because the system clock is before ธ.ค. 2569 (= Dec 2026
-// CE). latestDataMonth()'s "not in the future" rule is a clock test, not a data-quality test, so
-// once real time passes that month the known bad rows become "latest". Report, don't fail — the
-// fix is in the sheet, and BUILD_NOTES explicitly chose this rule.
 {
-  const afterTheBadRows = latestDataMonth(events, new Date(2027, 0, 15)) // Jan 2027 CE = ม.ค. 2570 BE
-  info('latestDataMonth(events, now = Jan 2027 CE / ม.ค. 2570 BE)', afterTheBadRows)
-  warn(
-    `TIME BOMB (not failed): latestDataMonth() suppresses the 2 future-dated ธ.ค. 2569 rows only by comparing against the system clock. Simulating now = Jan 2027 CE returns '${afterTheBadRows}'. From Dec 2026 CE onward the header will read 'ข้อมูลล่าสุดถึง ธันวาคม 2569' — a data-entry error, not real coverage. Fix the sheet, or make the rule fiscal-year-bounded.`,
+  // ม.ค. 2570 BE = Jan 2027 CE, unambiguously in the future relative to any run of this gate that
+  // the fixture is valid for. It must NOT be reported as the latest data month.
+  // `now` is PINNED to the day the fixture was captured. Both functions compare against the system
+  // clock, so leaving it at the default would make d3b/d3c start failing in Jan 2027 for a reason
+  // that has nothing to do with the code — the same clock-dependence trap the pre-refresh gate
+  // warned about. A fixed fixture deserves a fixed clock.
+  const FIXTURE_NOW = new Date(2026, 8, 12) // 2026-09-12 CE = ก.ย. 2569 BE
+  const withFuture = [...events, { month: 1, year: 2570, sortKey: 2570 * 12 + 1, monthLabel: 'ม.ค. 70' }]
+  const stillLatest = latestDataMonth(withFuture, FIXTURE_NOW)
+  assert(
+    'd3b. a synthetic future-dated row (ม.ค. 2570) is still excluded from latestDataMonth',
+    'กันยายน 2569',
+    stillLatest,
+    stillLatest === 'กันยายน 2569',
+  )
+  assert(
+    'd3c. ...and futureDatedRows() does find it',
+    '1',
+    String(futureDatedRows(withFuture, FIXTURE_NOW).length),
+    futureDatedRows(withFuture, FIXTURE_NOW).length === 1,
+  )
+}
+const coverage = coverageWindow(events)
+info('coverageWindow', coverage)
+eq('d4. coverage window labels', ['ตุลาคม 2568', 'กันยายน 2569'], [coverage?.firstLabel, coverage?.lastLabel])
+eq('d5. coverage window spans 12 contiguous months', 12, coverage ? coverage.lastKey - coverage.firstKey + 1 : -1)
+{
+  const oop = outOfPeriodRows(events, coverage)
+  assert(
+    'd6. no Section-1 row falls outside the validated coverage window (the legacy tab had 2 before + 2 after)',
+    'before 0 / after 0',
+    `before ${oop.before.length} / after ${oop.after.length}`,
+    oop.before.length === 0 && oop.after.length === 0,
   )
 }
 
@@ -320,44 +461,28 @@ assert(
 section('e. age (SPEC 3.2) + age bands (SPEC 4.3)')
 const nonNumericAge = events.filter((e) => e.age === null).length
 const exactSpelling = events.filter((e) => e.ageRaw === 'ไม่ระบุ').length
-const rawNonNumericAge = s2Data.filter((r) => !/^\d+$/.test(raw(r, 10))).length
-info(
-  'ageRaw spellings that are not a number',
-  JSON.stringify([...new Set(events.filter((e) => e.age === null).map((e) => e.ageRaw))].map((s) => (s === '' ? '(blank)' : s))),
-)
+const rawNonNumericAge = s1Data.filter((r) => !/^\d+$/.test(raw(r, 10))).length
+const ageSpellings = [...new Set(events.filter((e) => e.age === null).map((e) => e.ageRaw))].map((s) => (s === '' ? '(blank)' : s)).sort()
+info('ageRaw spellings that are not a number', JSON.stringify(ageSpellings))
 info("rows whose ageRaw is exactly 'ไม่ระบุ'", exactSpelling)
 info('raw-CSV count of rows whose col-10 is not ^\\d+$', rawNonNumericAge)
-// THE CLAIM AS WRITTEN IN THE ORIGINAL SPEC 3.2 TABLE TEXT / GATE BRIEF. It is FALSE against the
-// real file: 43 counts only the exact spelling 'ไม่ระบุ' and misses 'ไม่่ระบุ' (3, doubled tone
-// mark), 'ไม่รบุ' (1) and 1 blank cell — 48 total. SPEC.md line 87 has ALREADY been corrected to
-// 48, so the only text still saying 43 is the gate brief.
-//
-// A previous revision of this file downgraded this to an `info` on the grounds that it "would
-// fail the gate forever". THAT REASONING IS EXPLICITLY FORBIDDEN by the gate's own rule: "If an
-// assertion fails because SPEC's stated number is wrong about the real data (rather than the
-// code being wrong), say so explicitly and mark ok:false anyway — a human needs to see it."
-const exactNaiMaRabu = s2Data.filter((r) => (r[10] ?? '').trim() === 'ไม่ระบุ').length
-// It is restored as a hard FAIL. The CODE IS CORRECT (BUILD_NOTES "Age not specified" wins, and
-// SPEC 4.3 needs all 48 in the ไม่ระบุอายุ band for the six bands to sum to 440 — see e2); the
-// FAIL is a flag on the stale number, and clears the moment the brief is corrected to 48.
-assert(
-  "e0. exactly 43 ชีต2 rows carry the EXACT spelling 'ไม่ระบุ' (the figure SPEC 3.2 originally quoted)",
-  '43',
-  `${exactNaiMaRabu} (the other non-numeric spellings are counted by e1)`,
-  exactNaiMaRabu === 43,
+// BUILD_NOTES' "Age not specified is spelled three ways" typo class SURVIVED the restructure: the
+// refreshed tab still carries 'ไม่่ระบุ' (doubled tone mark), 'ไม่รบุ' and a blank cell alongside
+// the canonical 'ไม่ระบุ'. The rule must be "band = ไม่ระบุอายุ whenever the age is not a number",
+// never an equality test on the canonical spelling — e0 fails loudly the moment someone narrows it.
+eq(
+  'e0. the non-numeric age spellings are exactly the 4 BUILD_NOTES documents (canonical + 2 typos + blank)',
+  ['(blank)', 'ไม่รบุ', 'ไม่ระบุ', 'ไม่่ระบุ'].sort(),
+  ageSpellings,
 )
 assert(
-  'e1. exactly 48 rows have a non-numeric age (BUILD_NOTES + amended SPEC 3.2 line 87)',
-  '48',
+  "e0b. an equality test on 'ไม่ระบุ' would UNDERCOUNT — the robust rule must catch strictly more rows",
+  `more than ${exactSpelling}`,
   String(nonNumericAge),
-  nonNumericAge === 48,
+  nonNumericAge > exactSpelling,
 )
-assert(
-  "e1b. exactly 43 rows spell it 'ไม่ระบุ' (the figure SPEC's 43 actually described)",
-  '43',
-  String(exactSpelling),
-  exactSpelling === 43,
-)
+assert('e1. exactly 60 rows have a non-numeric age', '60', String(nonNumericAge), nonNumericAge === 60)
+assert("e1b. exactly 47 rows spell it 'ไม่ระบุ'", '47', String(exactSpelling), exactSpelling === 47)
 assert(
   'e1c. parseAge agrees with a raw ^\\d+$ test on col 10',
   String(rawNonNumericAge),
@@ -367,7 +492,7 @@ assert(
 const bands = ageBandByGender(events)
 const bandSum = bands.reduce((s, b) => s + b.total, 0)
 info('bands', bands)
-assert('e2. ageBandByGender bands SUM to 440 (SPEC 4.3)', '440', String(bandSum), bandSum === 440)
+assert('e2. ageBandByGender bands SUM to 580 (SPEC 4.3)', '580', String(bandSum), bandSum === 580)
 const unknownBand = bands.find((b) => b.band === 'ไม่ระบุอายุ')
 assert(
   'e3. ไม่ระบุอายุ band total === non-numeric age rows',
@@ -376,29 +501,61 @@ assert(
   unknownBand?.total === nonNumericAge,
 )
 const bandGenderSum = bands.reduce((s, b) => s + b.male + b.female, 0)
-assert('e4. male+female over all bands === 440 (no third gender value)', '440', String(bandGenderSum), bandGenderSum === 440)
+assert('e4. male+female over all bands === 580 (no third gender value)', '580', String(bandGenderSum), bandGenderSum === 580)
 eq('e5. six bands, in SPEC 4.3 order', ['ต่ำกว่า 18', '18–25', '26–45', '46–60', 'มากกว่า 60', 'ไม่ระบุอายุ'], bands.map((b) => b.band))
 // No numeric age may fall through to the ไม่ระบุอายุ band (band boundaries must not have a gap).
 const ages = events.map((e) => e.age).filter((a): a is number => a !== null)
 const gap = ages.filter((a) => !(a < 18 || (a >= 18 && a <= 25) || (a >= 26 && a <= 45) || (a >= 46 && a <= 60) || a > 60))
 assert('e6. no numeric age falls between two bands', '[]', JSON.stringify(gap), gap.length === 0)
+eq('e7. band totals, independently recomputed off raw col 10', [26, 53, 303, 115, 23, 60], bands.map((b) => b.total))
+{
+  // Independent recompute of the six bands straight off col 10, sharing nothing with AGE_BANDS.
+  const n = (r: string[]) => (/^\d+$/.test(raw(r, 10)) ? parseInt(raw(r, 10), 10) : null)
+  const rawBands = [
+    s1Data.filter((r) => { const a = n(r); return a !== null && a < 18 }).length,
+    s1Data.filter((r) => { const a = n(r); return a !== null && a >= 18 && a <= 25 }).length,
+    s1Data.filter((r) => { const a = n(r); return a !== null && a >= 26 && a <= 45 }).length,
+    s1Data.filter((r) => { const a = n(r); return a !== null && a >= 46 && a <= 60 }).length,
+    s1Data.filter((r) => { const a = n(r); return a !== null && a > 60 }).length,
+    s1Data.filter((r) => n(r) === null).length,
+  ]
+  eq('e7b. raw band tally === ageBandByGender totals', rawBands, bands.map((b) => b.total))
+}
 
 // ---------------------------------------------------------------------------- f
 
-section('f. ประวัติการรักษา (SPEC 3.2)')
+section('f. ประวัติการรักษาจิตเวช (col 15)')
 const treatment = countBy(events, (r) => r.treatmentHistory, CATEGORY_ORDERS.treatmentHistory)
 info('treatment counts', treatment)
-const other = treatment.find((cc) => cc.name === 'อื่น ๆ')
-assert("f1. an 'อื่น ๆ' category exists", 'present', other ? 'present' : 'MISSING', other !== undefined)
-assert("f2. 'อื่น ๆ' count === 6", '6', String(other?.value), other?.value === 6)
-assert('f3. exactly 6 categories, no unexpected extras appended', '6', String(treatment.length), treatment.length === 6)
+const treatmentFixed = treatment.slice(0, CATEGORY_ORDERS.treatmentHistory.length)
+const treatmentExtras = treatment.slice(CATEGORY_ORDERS.treatmentHistory.length)
+eq('f1. the 6 fixed categories come first, in SPEC order', CATEGORY_ORDERS.treatmentHistory, treatmentFixed.map((cc) => cc.name))
+eq('f2. their counts (refreshed fixture)', [210, 77, 73, 178, 31, 9], treatmentFixed.map((cc) => cc.value))
+// SOURCE-DATA DEFECT, not a code defect: one row has a ประเภทผู้ป่วย value ('ผู้ป่วยรายเก่า')
+// typed into the ประวัติการรักษา column. SPEC 4.5 says an unlisted value is APPENDED, never
+// dropped, so the code is right to surface it — f3 pins the extras to exactly that one known
+// stray, and fails loudly if a second one appears.
+eq('f3. exactly one appended extra, the known col-15 stray', [{ name: 'ผู้ป่วยรายเก่า', value: 1 }], treatmentExtras)
+if (treatmentExtras.length > 0) {
+  warn(
+    `f3. [SOURCE-DATA — owner must fix the SHEET] col 15 (ประวัติการรักษาจิตเวช) holds ${JSON.stringify(
+      treatmentExtras,
+    )}, which is a ประเภทผู้ป่วย (col 14) value in the wrong column. countBy() appends it per SPEC 4.5 rather than dropping it, so the chart grows a 7th bar.`,
+  )
+}
 const treatmentSum = treatment.reduce((s, cc) => s + cc.value, 0)
-assert('f4. treatment counts sum === 440 (no row dropped)', '440', String(treatmentSum), treatmentSum === 440)
+const rawTreatmentBlank = s1Data.filter((r) => raw(r, 15) === '' || raw(r, 15) === '-').length
+assert(
+  'f4. treatment counts sum === 580 minus the blank col-15 cells (no row silently lost)',
+  String(580 - rawTreatmentBlank),
+  `${treatmentSum} (${rawTreatmentBlank} blank col-15 cell(s))`,
+  treatmentSum === 580 - rawTreatmentBlank,
+)
 {
   const rawTally = new Map<string, number>()
-  for (const r of s2Data) rawTally.set(raw(r, 15), (rawTally.get(raw(r, 15)) ?? 0) + 1)
-  const rawOther = rawTally.get('อื่น ๆ') ?? 0
-  assert("f5. independent raw count of col-15 'อื่น ๆ' === 6", '6', String(rawOther), rawOther === 6)
+  for (const r of s1Data) rawTally.set(raw(r, 15), (rawTally.get(raw(r, 15)) ?? 0) + 1)
+  const rawFixed = CATEGORY_ORDERS.treatmentHistory.map((l) => rawTally.get(l) ?? 0)
+  eq('f5. independent raw col-15 tally === the 6 fixed counts', rawFixed, treatmentFixed.map((cc) => cc.value))
 }
 
 // ---------------------------------------------------------------------------- g
@@ -473,13 +630,25 @@ const sev1 = severityCounts(events)
 info('Section 1 severityCounts', sev1)
 assert(
   'h1. Section 1 black+red+yellow === total (no unknown-severity row)',
-  '440',
+  '580',
   `${sev1.black}+${sev1.red}+${sev1.yellow}=${sev1.black + sev1.red + sev1.yellow} (total ${sev1.total})`,
-  sev1.black + sev1.red + sev1.yellow === sev1.total && sev1.total === 440,
+  sev1.black + sev1.red + sev1.yellow === sev1.total && sev1.total === 580,
 )
-eq('h2. Section 1 black === 0 (SPEC: no black rows yet)', 0, sev1.black)
-eq('h3. Section 1 red === 4', 4, sev1.red)
-eq('h4. Section 1 yellow === 436', 436, sev1.yellow)
+// CHANGED vs the legacy fixture: SPEC 3.2 / BUILD_NOTES said "no black rows yet in Section 1".
+// The refreshed tab has ONE. The old `black === 0` assertion would now fail for the wrong reason.
+eq('h2. Section 1 black === 1 (the refreshed tab has one; the legacy tab had none)', 1, sev1.black)
+eq('h3. Section 1 red === 5', 5, sev1.red)
+eq('h4. Section 1 yellow === 574', 574, sev1.yellow)
+{
+  const rawSev = new Map<string, number>()
+  for (const r of s1Data) rawSev.set(raw(r, 7), (rawSev.get(raw(r, 7)) ?? 0) + 1)
+  info('raw col-7 severity spellings', JSON.stringify([...rawSev.entries()]))
+  eq(
+    'h4b. independent raw col-7 tally === severityCounts (black/red/yellow)',
+    [rawSev.get('สีดำ') ?? 0, rawSev.get('สีแดง') ?? 0, rawSev.get('สีเหลือง') ?? 0],
+    [sev1.black, sev1.red, sev1.yellow],
+  )
+}
 const sev2 = severityCounts(hazards)
 info('Section 2 severityCounts', sev2)
 assert(
@@ -488,7 +657,7 @@ assert(
   String(sev2.red),
   sev2.red === 16,
 )
-eq('h6. Section 2 black === 27 (black IS supported and present)', 27, sev2.black)
+eq('h6. Section 2 black === 27', 27, sev2.black)
 eq('h7. Section 2 yellow === 47', 47, sev2.yellow)
 assert(
   'h8. Section 2 black+red+yellow === total 90',
@@ -498,7 +667,7 @@ assert(
 )
 info('severityOf("สีีแดง") (doubled สระอี as it appears in the wide tab)', severityOf('สีีแดง'))
 info('severityOf("") / severityOf("-")', `${severityOf('')} / ${severityOf('-')}`)
-assert('h9. black is supported by the enum even though Section 1 has none', 'black', severityOf('สีดำ'), severityOf('สีดำ') === 'black')
+assert('h9. black is supported by the enum', 'black', severityOf('สีดำ'), severityOf('สีดำ') === 'black')
 
 // ---------------------------------------------------------------------------- i
 
@@ -514,12 +683,15 @@ assert(
   pie.length === 3 && nonPsych.length === 0,
 )
 const pieSum = pie.reduce((s, cc) => s + cc.value, 0)
-assert('i2. pie total === 170 (89+64+17, BUILD_NOTES)', '170', String(pieSum), pieSum === 170)
+// 170 (89+64+17) was the LEGACY tab's total. The refreshed tab reads 230 (88+26+116); what the
+// SPEC fixes is the SHAPE (3 slices), not the total.
+assert('i2. pie total === 230 (88+26+116 on the refreshed tab)', '230', String(pieSum), pieSum === 230)
+eq('i2b. the 3 slice values, in CATEGORY_ORDERS.diagnosis order', [88, 26, 116], pie.map((cc) => cc.value))
 const psychOnly = pie.filter((cc) => psychLabels.includes(collapseWs(cc.name)))
 info('the 3 psychiatric rows themselves (all matched, incl. the double-space value)', psychOnly)
 assert(
   'i3. each of the 3 psychiatric labels resolved a non-zero count (double-space match works)',
-  '[89 or 64 or 17 for each]',
+  'all > 0',
   JSON.stringify(psychOnly.map((cc) => cc.value)),
   psychOnly.length === 3 && psychOnly.every((cc) => cc.value > 0),
 )
@@ -527,7 +699,7 @@ assert(
 // may silently vanish from col 12.
 {
   const rawTally = new Map<string, number>()
-  for (const r of s2Data) {
+  for (const r of s1Data) {
     const v = raw(r, 12)
     if (v === '' || v === '-') continue
     rawTally.set(v, (rawTally.get(v) ?? 0) + 1)
@@ -548,18 +720,19 @@ assert(
 
 // ---------------------------------------------------------------------------- j
 
-section('j. countBy on ผู้ป่วยจิตเวช/อื่นๆ (SPEC 3.2, 5 groups)')
+section('j. countBy on ผู้ป่วยจิตเวช/อื่นๆ (col 13, 5 groups)')
 const groups = countBy(events, (r) => r.patientGroup, CATEGORY_ORDERS.patientGroup)
 info('patientGroup counts', groups)
 eq('j1. exactly 5 groups (no extras appended)', 5, groups.length)
 eq('j2. the 5 group names match SPEC 3.2', CATEGORY_ORDERS.patientGroup, groups.map((g) => g.name))
 const groupSum = groups.reduce((s, cc) => s + cc.value, 0)
-assert('j3. group counts sum === 440', '440', String(groupSum), groupSum === 440)
+assert('j3. group counts sum === 580', '580', String(groupSum), groupSum === 580)
 {
   const rawTally = new Map<string, number>()
-  for (const r of s2Data) rawTally.set(raw(r, 13), (rawTally.get(raw(r, 13)) ?? 0) + 1)
+  for (const r of s1Data) rawTally.set(raw(r, 13), (rawTally.get(raw(r, 13)) ?? 0) + 1)
   const rawPairs = CATEGORY_ORDERS.patientGroup.map((l) => rawTally.get(l) ?? 0)
   eq('j4. independent raw col-13 counts match countBy', rawPairs, groups.map((g) => g.value))
+  eq('j5. and those counts are [144,137,228,44,27]', [144, 137, 228, 44, 27], rawPairs)
 }
 
 // ---------------------------------------------------------------------------- k
@@ -572,9 +745,9 @@ assert('k1. percent in [0,100]', '0 <= p <= 100', String(t1.percent), t1.percent
 assert('k2. percent has at most 2 decimals', 'true', String(twoDecimals(t1.percent)), twoDecimals(t1.percent))
 const levels = TIMELINESS_LEVELS.map((l) => l.level)
 assert('k3. level is one of the SPEC 6.4 table levels', JSON.stringify(levels), t1.level, levels.includes(t1.level))
-eq('k4. pass', 430, t1.pass)
-eq('k5. total', 440, t1.total)
-eq('k6. percent === 97.73', 97.73, t1.percent)
+eq('k4. pass', 571, t1.pass)
+eq('k5. total', 580, t1.total)
+eq('k6. percent === 98.45', 98.45, t1.percent)
 eq("k7. level === '0.5' (>= 90.00 -> emerald / Laugh)", '0.5', t1.level)
 eq('k8. icon', 'Laugh', t1.icon)
 const t2 = computeTimeliness(hazards)
@@ -583,14 +756,14 @@ eq('k9. Section 2 percent === 100 (90/90)', 100, t2.percent)
 const tAll = computeTimeliness([...events, ...hazards])
 info('combined timeliness (what the zone tab shows)', tAll)
 assert(
-  'k10. combined pass/total === 520/530 and percent === 98.11',
-  '520/530 -> 98.11',
+  'k10. combined pass/total === 661/670 and percent === 98.66',
+  '661/670 -> 98.66',
   `${tAll.pass}/${tAll.total} -> ${tAll.percent}`,
-  tAll.pass === 520 && tAll.total === 530 && tAll.percent === 98.11,
+  tAll.pass === 661 && tAll.total === 670 && tAll.percent === 98.66,
 )
 {
-  const rawPass = s2Data.filter((r) => raw(r, 8) === 'ตามเกณฑ์').length
-  const rawTotal = s2Data.filter((r) => raw(r, 8) !== '' && raw(r, 8) !== '-' && raw(r, 8) !== 'ไม่มีข้อมูล').length
+  const rawPass = s1Data.filter((r) => raw(r, 8) === 'ตามเกณฑ์').length
+  const rawTotal = s1Data.filter((r) => raw(r, 8) !== '' && raw(r, 8) !== '-' && raw(r, 8) !== 'ไม่มีข้อมูล').length
   assert('k11. independent raw pass/total off col 8', `${rawPass}/${rawTotal}`, `${t1.pass}/${t1.total}`, rawPass === t1.pass && rawTotal === t1.total)
 }
 // The whole SPEC 6.4 level table must be reachable, not just the 0.5 row the live data lands on.
@@ -622,14 +795,14 @@ assert(
 
 section('l. suicide subset (SPEC 4.6)')
 const suicide = suicideSubset(events)
-eq('l1. suicideSubset size', 89, suicide.length)
+eq('l1. suicideSubset size', 108, suicide.length)
 const suicideVals = countBy(suicide, (r) => r.suicide, CATEGORY_ORDERS.suicide)
 info('suicide success/fail', suicideVals)
 assert(
-  'l2. success 70 / fail 19, no extras',
-  '[70,19] and 2 categories',
+  'l2. success 89 / fail 19, no extras',
+  '[89,19] and 2 categories',
   `${JSON.stringify(suicideVals.map((v) => v.value))} and ${suicideVals.length} categories`,
-  suicideVals.length === 2 && suicideVals[0].value === 70 && suicideVals[1].value === 19,
+  suicideVals.length === 2 && suicideVals[0].value === 89 && suicideVals[1].value === 19,
 )
 const methodInSubset = topN(suicide, (r) => r.suicideMethod, 5)
 const causeInSubset = topN(suicide, (r) => r.suicideCause, 5)
@@ -639,14 +812,14 @@ info('cause top5 (subset)', causeInSubset)
 info('location top10 (subset)', locInSubset)
 const sumOf = (a: { value: number }[]): number => a.reduce((s, cc) => s + cc.value, 0)
 assert(
-  'l3. method/cause/location totals inside the subset are all <= 89',
-  '<= 89 each',
+  'l3. method/cause/location totals inside the subset are all <= 108',
+  '<= 108 each',
   `method ${sumOf(countBy(suicide, (r) => r.suicideMethod))}, cause ${sumOf(countBy(suicide, (r) => r.suicideCause))}, location ${sumOf(countBy(suicide, (r) => r.suicideLocation))}`,
-  sumOf(countBy(suicide, (r) => r.suicideMethod)) <= 89 &&
-    sumOf(countBy(suicide, (r) => r.suicideCause)) <= 89 &&
-    sumOf(countBy(suicide, (r) => r.suicideLocation)) <= 89,
+  sumOf(countBy(suicide, (r) => r.suicideMethod)) <= 108 &&
+    sumOf(countBy(suicide, (r) => r.suicideCause)) <= 108 &&
+    sumOf(countBy(suicide, (r) => r.suicideLocation)) <= 108,
 )
-// The subset restriction is load-bearing: สถานที่ก่อเหตุ is filled on 351 NON-suicide rows too.
+// The subset restriction is load-bearing: สถานที่ is filled on the NON-suicide rows too.
 const outside = events.filter((e) => {
   const t = e.suicide.trim()
   return t === '' || t === '-'
@@ -656,17 +829,17 @@ const nonBlank = (rows: SLEvent[], pick: (r: SLEvent) => string): number =>
     const t = pick(r).trim()
     return t !== '' && t !== '-'
   }).length
-info('rows OUTSIDE the subset with a non-blank วิธีการฆ่าคัวตาย', nonBlank(outside, (r) => r.suicideMethod))
+info('rows OUTSIDE the subset with a non-blank วิธีฆ่าตัวตาย', nonBlank(outside, (r) => r.suicideMethod))
 info('rows OUTSIDE the subset with a non-blank สาเหตุการฆ่าตัวตาย', nonBlank(outside, (r) => r.suicideCause))
-info('rows OUTSIDE the subset with a non-blank สถานที่ก่อเหตุ', nonBlank(outside, (r) => r.suicideLocation))
-info('location total over ALL 440 rows (the wrong denominator)', sumOf(countBy(events, (r) => r.suicideLocation)))
+info('rows OUTSIDE the subset with a non-blank สถานที่', nonBlank(outside, (r) => r.suicideLocation))
+info('location total over ALL 580 rows (the wrong denominator)', sumOf(countBy(events, (r) => r.suicideLocation)))
 assert(
   'l4. counting location over ALL rows differs from the subset -> the subset restriction is load-bearing',
-  'subset 89 != all-rows count',
+  'subset != all-rows count',
   `subset ${sumOf(countBy(suicide, (r) => r.suicideLocation))} vs all ${sumOf(countBy(events, (r) => r.suicideLocation))}`,
   sumOf(countBy(suicide, (r) => r.suicideLocation)) !== sumOf(countBy(events, (r) => r.suicideLocation)),
 )
-const rawLoc19 = new Set(s2Data.map((r) => raw(r, 19)).filter((v) => v !== '' && v !== '-'))
+const rawLoc19 = new Set(s1Data.map((r) => raw(r, 19)).filter((v) => v !== '' && v !== '-'))
 info("raw col-19 values containing 'ตลาด'", [...rawLoc19].filter((v) => v.includes('ตลาด')))
 const allLocNames = countBy(events, (r) => r.suicideLocation).map((cc) => cc.name)
 assert(
@@ -675,14 +848,26 @@ assert(
   `parsed location categories containing 'ตลาด': ${JSON.stringify(allLocNames.filter((n) => n.includes('ตลาด')))}`,
   rawLoc19.has('ตลาดร้านค้า') && !allLocNames.includes('ตลาดร้านค้า'),
 )
+// ------------------------------------------------------------------ l5b (verification gate)
+// SPEC 4.6 says the market/shop location is ONE category. The refreshed tab spells it THREE ways
+// (`ตลาด / ร้านค้า` 7, `ตลาด/ร้านค้า` 2, `ตลาดร้านค้า` 1) and mergeSuicideLocation() in
+// src/data/parseSheet2.ts lists only the first and third, so the spaceless middle spelling stays
+// a separate slice. l5 above passes and still misses this — it only checks the ONE variant that
+// happens to be listed. Fail on the CATEGORY COUNT instead, which is what SPEC 4.6 actually fixes.
+assert(
+  'l5b. [src BUG] the market/shop location is ONE parsed category (SPEC 4.6 merge)',
+  "1 category containing 'ตลาด'",
+  `${JSON.stringify(allLocNames.filter((n) => n.includes('ตลาด')))} — mergeSuicideLocation() (src/data/parseSheet2.ts) merges 'ตลาด / ร้านค้า' and 'ตลาดร้านค้า' but NOT the spaceless 'ตลาด/ร้านค้า' (2 rows), so the pie shows two slices for one place`,
+  allLocNames.filter((n) => n.includes('ตลาด')).length === 1,
+)
 {
-  const rawSubset = s2Data.filter((r) => raw(r, 16) !== '' && raw(r, 16) !== '-').length
+  const rawSubset = s1Data.filter((r) => raw(r, 16) !== '' && raw(r, 16) !== '-').length
   assert('l6. independent raw subset size off col 16', String(rawSubset), String(suicide.length), rawSubset === suicide.length)
 }
 
 // ---------------------------------------------------------------------------- m
 
-section('m. monthlyTrend (SPEC 4.1)')
+section('m. monthlyTrend (SPEC 4.1 + UX-02 continuous axis)')
 const trend = monthlyTrend(events)
 info('trend', trend)
 const labelOk = trend.every((p) => MONTH_ABBR.some((a) => p.label.startsWith(a + ' ')) && /\s\d{2}$/.test(p.label))
@@ -694,13 +879,13 @@ assert(
 )
 const sortedOk = trend.every((p, i) => i === 0 || p.sortKey > trend[i - 1].sortKey)
 assert('m2. sorted ascending by sortKey', 'true', String(sortedOk), sortedOk)
-const trendSum = trend.reduce((s, p) => s + p.value, 0)
+const trendSum = trend.reduce((s, p) => s + (p.value ?? 0), 0)
 const blankMonthRows = events.filter((e) => e.sortKey <= 0).length
 assert(
-  'm3. trend total === 440 minus the rows with no resolvable month/year (by design, documented)',
-  `${440 - blankMonthRows}`,
+  'm3. trend total === 580 minus the rows with no resolvable month/year (by design, documented)',
+  `${580 - blankMonthRows}`,
   `${trendSum} (${blankMonthRows} row(s) have a blank เดือน cell -> sortKey 0 -> excluded)`,
-  trendSum === 440 - blankMonthRows,
+  trendSum === 580 - blankMonthRows,
 )
 // sortKey must be year*12+month and consistent with the label (SPEC 4.1).
 {
@@ -711,32 +896,76 @@ assert(
     return mi === 0 || p.sortKey !== (2500 + yy) * 12 + mi
   })
   assert('m4. every label decodes back to its sortKey (year*12+month)', '[]', JSON.stringify(bad), bad.length === 0)
-  // Independent recompute of the whole bucket set straight off the raw month/year columns.
+
+  // ------------------------------------------------------------------ m5 (was a KNOWN-BAD check)
+  // PRE-EXISTING FAILURE, now fixed properly. The old m5 compared monthlyTrend()'s axis against a
+  // SPARSE raw tally (only the months that have rows). Since UX-02 monthlyTrend() emits a
+  // CONTINUOUS month sequence — every month between the first and the last, gaps filled — the two
+  // shapes could never match and m5 failed by construction, not because anything was wrong.
+  // The fix is to build the expectation the same way the CONTRACT says: gap-fill the independent
+  // raw tally across first..last. Still fully independent — it reads cols 1/2 of the raw CSV and
+  // never touches `trend`, `events` or any src aggregate for its counts.
   const rawBuckets = new Map<number, number>()
-  for (const r of s2Data) {
+  for (const r of s1Data) {
     const m = parseMonth(raw(r, 1))
     const y = parseYear(raw(r, 2))
     if (m === null || y === null) continue
     const k = y * 12 + m
     rawBuckets.set(k, (rawBuckets.get(k) ?? 0) + 1)
   }
-  const rawSorted = [...rawBuckets.entries()].sort((a, b) => a[0] - b[0])
-  eq('m5. buckets and counts match an independent raw month/year tally', rawSorted, trend.map((p) => [p.sortKey, p.value]))
+  const rawKeys = [...rawBuckets.keys()].sort((a, b) => a - b)
+  const rawGapFilled: [number, number][] = []
+  for (let k = rawKeys[0]; k <= rawKeys[rawKeys.length - 1]; k++) rawGapFilled.push([k, rawBuckets.get(k) ?? 0])
+  eq(
+    'm5. buckets and counts match an independent raw month/year tally, GAP-FILLED across the span (UX-02 continuous axis)',
+    rawGapFilled,
+    trend.map((p) => [p.sortKey, p.value]),
+  )
+  info(
+    'm5 note',
+    `the refreshed tab happens to report all ${rawKeys.length} months contiguously (no hole), so m5b below is what actually exercises the gap-filling`,
+  )
   info('trend buckets in order', trend.map((p) => `${p.label}=${p.value}`).join(' '))
-  warn(
-    `the trend's FIRST bucket is 'ม.ค. 68' (2 rows, BUILD_NOTES data-entry error: มกราคม 2568 predates the ต.ค. 2568 fiscal-year start) and its LAST is 'ธ.ค. 69' (2 future-dated rows). sortKey ordering is calendar-based, so those errors bracket the axis. SPEC 4.1 says "every month present in the filtered data", so this is reported, not failed.`,
+
+  // ------------------------------------------------------------------ m5b/m5c (verification gate)
+  // m5 above can only prove the gap-fill when the DATA has a gap, and the refreshed fixture has
+  // none. Feed monthlyTrend a hand-built row set with a hole so the UX-02 behaviour is tested
+  // directly: a hole is a CONFIRMED ZERO by default, and a NULL/missing point when reportedKeys
+  // says that month was never reported at all.
+  const K = (m: number) => 2569 * 12 + m
+  const synth = [
+    { sortKey: K(1), monthLabel: 'ม.ค. 69' },
+    { sortKey: K(1), monthLabel: 'ม.ค. 69' },
+    { sortKey: K(4), monthLabel: 'เม.ย. 69' },
+  ]
+  eq(
+    'm5b. a hole in the data becomes a CONTIGUOUS axis of confirmed zeros (no reportedKeys)',
+    [[K(1), 2, false], [K(2), 0, false], [K(3), 0, false], [K(4), 1, false]],
+    monthlyTrend(synth).map((p) => [p.sortKey, p.value, p.missing]),
+  )
+  eq(
+    'm5c. a month NOT in reportedKeys is null+missing, not a fabricated 0 (UX-02 fix item 4)',
+    [[K(1), 2, false], [K(2), null, true], [K(3), 0, false], [K(4), 1, false]],
+    monthlyTrend(synth, { reportedKeys: new Set([K(1), K(3), K(4)]) }).map((p) => [p.sortKey, p.value, p.missing]),
+  )
+  eq(
+    'm5d. fromKey/toKey clip the axis to the coverage window',
+    [[K(2), 0, false], [K(3), 0, false]],
+    monthlyTrend(synth, { fromKey: K(2), toKey: K(3) }).map((p) => [p.sortKey, p.value, p.missing]),
   )
 }
 warn(
   `the trend sums to ${trendSum} but the KPI "ทั้งหมด" is ${events.length}; the ${blankMonthRows} blank-month row(s) cannot be placed on a time axis. The UI must not present the trend as a total.`,
 )
-warn(
-  'only latestDataMonth() filters future-dated rows. monthlyTrend still plots the known data-entry errors ม.ค. 68 (2 rows, before the fiscal year) and ธ.ค. 69 (2 rows, in the future) — BUILD_NOTES "2 future-dated rows". SPEC 4.1 does not require filtering them, so this is reported, not failed.',
-)
+if (blankMonthRows > 0) {
+  warn(
+    `[SOURCE-DATA] ${blankMonthRows} Section-1 row(s) have a blank เดือน cell (col 1) while carrying a ปี — they are invisible on every time-based chart. Owner to fill the month in the sheet.`,
+  )
+}
 
 // ---------------------------------------------------------------------------- n
 
-section('n. hazardTypeCounts (SPEC 3.3)')
+section('n. hazardTypeCounts + hazardCasualties (SPEC 3.3, deck slide 22)')
 const hz = hazardTypeCounts(hazards)
 info('hazardTypeCounts', hz)
 const expectedHazardOrder = [...HAZARD_TYPES.map((h) => h.label), HAZARD_UNSPECIFIED_LABEL]
@@ -761,60 +990,168 @@ eq('n3. per-category counts match BUILD_NOTES (0/5/15/1/57/12 + 0 unspecified)',
   assert('n5. raw rows with no flag === the ไม่ระบุ bucket', String(rawNoFlag), String(hz[6].value), rawNoFlag === hz[6].value)
   // The fallback must still WORK even though no row needs it today (SPEC 3.3).
   const synthetic = parseWide([wideRows[0], (() => {
-    const r = new Array(84).fill('')
+    const r = new Array<string>(85).fill('')
     r[35] = 'ทดสอบ'
     r[36] = 'หัวข้อทดสอบ'
     return r
   })()])
   eq('n6. a Section-2 row with no flag falls back to ภัยอื่นๆ (ไม่ระบุ)', [HAZARD_UNSPECIFIED_LABEL], synthetic[0]?.hazards)
   info('isTruthyCell on the SPEC 3.3 falsy set', JSON.stringify(['', '-', '0', 'false', 'ไม่มีข้อมูล'].map((v) => `${JSON.stringify(v)}->${isTruthyCell(v)}`)))
+
+  // NEW AGGREGATE (deck slide 22) — Section-2 casualty totals off cols 47/48/50/51.
+  const cas = hazardCasualties(hazards)
+  info('hazardCasualties', cas)
+  eq(
+    'n7. hazardCasualties === 16 / 13 / 672 / 151 (BUILD_NOTES), total 852',
+    { officerInjured: 16, officerDead: 13, publicInjured: 672, publicDead: 151, total: 852 },
+    cas,
+  )
+  const rawCas = [47, 48, 50, 51].map((i) => sec.reduce((s, r) => s + (/^\d+$/.test(raw(r, i)) ? parseInt(raw(r, i), 10) : 0), 0))
+  eq(
+    'n8. independent raw sums off cols 47/48/50/51 agree (col 49 is อาชีพ text and must NOT be summed)',
+    rawCas,
+    [cas.officerInjured, cas.officerDead, cas.publicInjured, cas.publicDead],
+  )
+  assert(
+    'n9. total is the four summed, nothing double-counted',
+    String(rawCas.reduce((s, v) => s + v, 0)),
+    String(cas.total),
+    cas.total === rawCas.reduce((s, v) => s + v, 0),
+  )
 }
 
-// ---------------------------------------------------------------------------- o (new): header resolver
+// ---------------------------------------------------------------------------- o: header resolver
 
-section('o. ชีต2 header-name resolution (SPEC 3.2 "resolve by header name, index as fallback")')
+section('o. Section-1 header-name resolution on the LIVE 85-column tab')
 {
-  // Re-derive what src/data/parseSheet2.ts's buildResolver() would produce, then prove that for
-  // this real header row it lands on exactly the SPEC 3.2 indexes. A header-name collision here
-  // would silently make a widget read the wrong column.
+  /**
+   * THE TABLE THAT MAKES THIS GATE MEAN SOMETHING. Every Section-1 field the app reads, with the
+   * header name the LIVE tab spells it and the column it must land on. Written out here from the
+   * fixture's own header row rather than imported from src/ — if parseSheet2's COLUMNS map drifts
+   * from the sheet, exactly one of the two changes and o2/o3 catch it.
+   *
+   * The old version of this table held the 36 LEGACY ชีต2 names at their legacy indexes. Paired
+   * with the legacy fixture that made o3 a false green: every legacy name resolved there, while
+   * on the tab fetchSheet.ts actually downloads not one of them exists.
+   */
   const specNames: [string, number][] = [
-    ['เขตสุขภาพ', 0], ['ปี', 2], ['จังหวัด', 3], ['เนื้อหา', 4], ['link', 5], ['ช่องทาง Alert', 6],
-    ['ระดับความรุนแรง', 7], ['การส่งรายงาน', 8], ['เพศ', 9], ['อายุ', 10], ['ช่วงอายุ', 11],
-    ['การวินิจฉัยโรค', 12], ['ผู้ป่วยจิตเวช/อื่นๆ', 13], ['การจำแนกผู้ป่วย', 14], ['ประวัติการรักษา', 15],
-    ['การฆ่าตัวตาย', 16], ['วิธีการฆ่าคัวตาย', 17], ['สาเหตุการฆ่าตัวตาย', 18], ['สถานที่ก่อเหตุ', 19],
-    ['มีผู้ได้รับผลกระทบ', 20], ['ประเภทผู้ได้รับผลกระทบ', 21], ['จำนวนผู้ได้บาดเจ็บ', 22],
-    ['จำนวนผู้เสียชีวิต', 23], ['รายงานข้อเท็จจริงด้านจิตเวช', 24], ['ผู้ปฏิบัติงาน', 25],
-    ['การช่วยเหลือผู้ก่อเหตุ', 26], ['ขาดยา', 27], ['กลับมาเสพซ้ำ', 28], ['ไม่มาตามนัด', 29], ['อื่น ๆ', 30],
-    ['ไม่หลับไม่นอน', 31], ['เดินไปเดินมา', 32], ['พูดจาคนเดียว', 33], ['หงุดหงิด', 34],
-    ['เที่ยวหวาดระแวง', 35], ['ไม่มีอาการ', 36],
+    // core Section-1 block, cols 0-26 (every live header carries a ' ภัยน้ำมือมนุษย์' suffix)
+    ['เขตสุขภาพที่ ภัยน้ำมือมนุษย์', 0], ['เดือนภัยน้ำมือมนุษย์', 1], ['ปีภัยน้ำมือมนุษย์', 2],
+    ['จังหวัดภัยน้ำมือมนุษย์', 3], ['หัวข้อข่าวภัยน้ำมือมนุษย์', 4], ['linkภัยน้ำมือมนุษย์', 5],
+    ['ช่องทางAlertข่าวภัยน้ำมือมนุษย์', 6], ['ระดับความรุนแรง ภัยน้ำมือมนุษย์', 7],
+    ['รายงานการส่งข่าว ภัยน้ำมือมนุษย์', 8], ['เพศ ภัยน้ำมือมนุษย์', 9], ['อายุ ภัยน้ำมือมนุษย์', 10],
+    ['ช่วงอายุวัย ภัยน้ำมือมนุษย์', 11], ['การประเมินกลุ่มผู้ป่วย ภัยน้ำมือมนุษย์', 12],
+    ['ผู้ป่วยจิตเวช/อื่นๆ ภัยน้ำมือมนุษย์', 13], ['ประเภทผู้ป่วย ภัยน้ำมือมนุษย์', 14],
+    ['ประวัติการรักษาจิตเวช ภัยน้ำมือมนุษย์', 15], ['พยายามฆ่าตัวตาย ภัยน้ำมือมนุษย์', 16],
+    ['วิธีฆ่าตัวตาย ภัยน้ำมือมนุษย์', 17], ['สาเหตุการฆ่าตัวตาย ภัยน้ำมือมนุษย์', 18],
+    // the live header really does spell สถานที่ with a doubled สระอี — verbatim, it is the key
+    ['สถานที่ี่การฆ่าตัวตาย ภัยน้ำมือมนุษย์', 19], ['มีผู้ได้รับผลกระทบ ภัยน้ำมือมนุษย์', 20],
+    ['ประเภทผู้ได้รับผลกระทบ ภัยน้ำมือมนุษย์', 21], ['ประชาชนที่ได้รับผลกระทบบาดเจ็บ ภัยน้ำมือมนุษย์', 22],
+    ['ประชาชนที่ได้รับผลกระทบเสียชีวิต ภัยน้ำมือมนุษย์', 23], ['ข้อเท็จจริงจากสื่อออนไลน์ ภัยน้ำมือมนุษย์', 24],
+    ['ผู้ปฏิบัติงานภัยน้ำมือมนุษย์', 25], ['การช่วยเหลือส่งต่อผู้ป่วย ภัยน้ำมือมนุษย์', 26],
+    // ปัจจัยเสี่ยง flag columns, 74-77 (74/75 carry a trailing \r\n in the real header)
+    ['ขาดยา/ไม่มาตามนัด', 74], ['กลับมาใช้สารเสพติดซ้ำ', 75], ['มีการใช้สารเสพติดร่วมด้วย', 76], ['อื่น ๆ', 77],
+    // สัญญาณเตือน flag columns, 78-82 — COLUMN order, which is NOT the display order
+    ['ไม่หลับไม่นอน', 78], ['เดินไปเดินมา', 79], ['พูดจาคนเดียว', 80], ['หงุดหงิดฉุนเฉียว', 81], ['เที่ยวหวาดระแวง', 82],
+    // 83 carries the sheet's own typo (missing สระอา), transcribed verbatim; 84 is the new answer
+    ['ไม่มีอการทางจิตเวช', 83], ['5สัญญาณเตือน', 84],
   ]
-  const trimmed = sheet2Rows[0].map((h) => (h ?? '').trim())
-  const byName = new Map<string, number>()
-  trimmed.forEach((h, i) => {
-    if (h !== '' && !byName.has(h)) byName.set(h, i)
-  })
-  const dupes = new Map<string, number[]>()
+  // collapseWs on BOTH sides: header 21 has a double space, 74/75 end with \r\n, 77/79/80/82/83
+  // have trailing spaces. That whitespace tolerance is part of the contract, not a shortcut.
+  const trimmed = wideRows[0].map((h) => collapseWs(h ?? ''))
+  const byName = new Map<string, number[]>()
   trimmed.forEach((h, i) => {
     if (h === '') return
-    dupes.set(h, [...(dupes.get(h) ?? []), i])
+    const hit = byName.get(h)
+    if (hit) hit.push(i)
+    else byName.set(h, [i])
   })
-  const dupList = [...dupes.entries()].filter(([, v]) => v.length > 1)
-  assert('o1. no duplicate header name in ชีต2 (first-wins resolution is unambiguous)', '[]', JSON.stringify(dupList), dupList.length === 0)
+  const dupList = [...byName.entries()].filter(([, v]) => v.length > 1)
+  // CHANGED: the live tab DOES repeat a header name. '5สัญญาณเตือน' sits at col 29 (the sheet's
+  // older, superseded answer) and col 84 (the authoritative one BUILD_NOTES measured), so a
+  // blanket "no duplicates" assertion is simply false here. Pin the duplicate set to exactly that
+  // one known pair — a SECOND repeated name would still fail, which is the property that matters.
+  eq('o1. the only repeated Section-1 header name is the known 5สัญญาณเตือน pair (cols 29 and 84)', [['5สัญญาณเตือน', [29, 84]]], dupList)
+  info('empty header cells (block separators)', JSON.stringify(trimmed.map((h, i) => (h === '' ? i : -1)).filter((i) => i >= 0)))
+
+  // Resolution rule under test (SPEC 3.2 + parseSheet2's documented tie-break): resolve by NAME;
+  // when several columns share the name, the DECLARED index wins; only then fall back to index.
+  const resolve = (name: string, idx: number): number => {
+    const hits = byName.get(collapseWs(name))
+    if (!hits || hits.length === 0) return idx
+    return hits.includes(idx) ? idx : hits[0]
+  }
   const mismatches = specNames
-    .map(([name, idx]) => ({ name, idx, resolved: byName.has(name) ? (byName.get(name) as number) : idx }))
+    .map(([name, idx]) => ({ name, idx, resolved: resolve(name, idx) }))
     .filter((x) => x.resolved !== x.idx)
   assert(
-    'o2. every SPEC 3.2 header name resolves to its SPEC index (no silent wrong-column read)',
+    'o2. every live Section-1 header name resolves to its declared index (no silent wrong-column read)',
     '[]',
     JSON.stringify(mismatches),
     mismatches.length === 0,
   )
-  const notFound = specNames.filter(([name]) => !byName.has(name)).map(([name]) => name)
-  assert('o3. every SPEC 3.2 header name is actually present in the file (no silent index fallback)', '[]', JSON.stringify(notFound), notFound.length === 0)
-  eq('o4. column 1 (month) really has a blank header, so index resolution is required', '', trimmed[1])
+  const notFound = specNames.filter(([name]) => !byName.has(collapseWs(name))).map(([name]) => name)
+  assert(
+    'o3. every live Section-1 header name is actually PRESENT in the tab the app fetches (no silent index fallback)',
+    '[]',
+    JSON.stringify(notFound),
+    notFound.length === 0,
+  )
+  // o3b is the teeth behind o3: prove the resolver the APP builds lands on the same 39 columns.
+  const res = buildResolver(wideRows[0])
+  info('buildResolver(wide header)', res)
+  eq(
+    'o3b. buildResolver() core indexes match the declared table (nothing resolved to -1 / "absent")',
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 83, 84],
+    [
+      res.core.zone, res.core.month, res.core.year, res.core.province, res.core.headline, res.core.link,
+      res.core.channel, res.core.severity, res.core.reporting, res.core.gender, res.core.age,
+      res.core.suicideAgeGroup, res.core.diagnosis, res.core.patientGroup, res.core.patientClass,
+      res.core.treatmentHistory, res.core.suicide, res.core.suicideMethod, res.core.suicideCause,
+      res.core.suicideLocation, res.core.affected, res.core.affectedType, res.core.injured,
+      res.core.deaths, res.core.factReport, res.core.operator, res.core.assistance,
+      res.core.noSymptoms, res.core.fiveSignsAnswer,
+    ],
+  )
+  eq('o3c. the 4 risk factors resolve to cols 74-77, one column each', [[74], [75], [76], [77]], res.risk)
+  eq('o3d. the 5 warning signs resolve to their own columns in DISPLAY order (81,82,80,78,79 — not 78..82)', [[81], [82], [80], [78], [79]], res.signs)
+
+  // o1b: the concrete consequence of the duplicate-name tie-break. Col 29 answers 332 มี / 244
+  // ไม่มี; col 84 answers 355 / 225. If the resolver took the FIRST match instead of the declared
+  // index, fiveSignsAnswer would silently carry the superseded column's answer.
+  const fiveTally = countBy(events, (r) => r.fiveSignsAnswer)
+  info('countBy(fiveSignsAnswer)', fiveTally)
+  const col29 = new Map<string, number>()
+  const col84 = new Map<string, number>()
+  for (const r of s1Data) {
+    col29.set(raw(r, 29), (col29.get(raw(r, 29)) ?? 0) + 1)
+    col84.set(raw(r, 84), (col84.get(raw(r, 84)) ?? 0) + 1)
+  }
+  info('raw col-29 tally (superseded)', JSON.stringify([...col29.entries()]))
+  info('raw col-84 tally (authoritative)', JSON.stringify([...col84.entries()]))
+  assert(
+    'o1b. fiveSignsAnswer reads the AUTHORITATIVE col 84 (355 มี / 225 ไม่มี), not the superseded col 29 (332 / 244)',
+    'มี 355 / ไม่มี 225',
+    `มี ${fiveTally.find((c) => c.name === 'มี')?.value} / ไม่มี ${fiveTally.find((c) => c.name === 'ไม่มี')?.value}`,
+    fiveTally.find((c) => c.name === 'มี')?.value === 355 && fiveTally.find((c) => c.name === 'ไม่มี')?.value === 225,
+  )
+  {
+    const disagree = s1Data.filter((r) => collapseDoubledMarks(raw(r, 29)) !== raw(r, 84)).length
+    warn(
+      `[SOURCE-DATA] the two '5สัญญาณเตือน' columns disagree on ${disagree} of ${s1Data.length} rows (col 29: ${JSON.stringify(
+        [...col29.entries()],
+      )}; col 84: ${JSON.stringify([...col84.entries()])}). The app takes col 84. The owner should delete col 29 from the sheet.`,
+    )
+  }
+
+  // o4 FLIPPED with the fixture. On the legacy narrow tab col 1 (เดือน) had a BLANK header, which
+  // is why parseSheet2 marks `month` silentFallback. The live tab NAMES it, so on production data
+  // no Section-1 field needs an index fallback at all. The blank-header path is exercised in
+  // section r against the legacy fixture, where it still applies.
+  eq('o4. the live tab NAMES the month column (the legacy narrow tab left it blank)', 'เดือนภัยน้ำมือมนุษย์', trimmed[1])
   // Parse robustness: a reordered header must still resolve by NAME, not by position.
   {
-    const swapped = sheet2Rows.map((r) => {
+    const swapped = wideRows.map((r) => {
       const copy = [...r]
       const a = copy[7]
       copy[7] = copy[9]
@@ -825,14 +1162,14 @@ section('o. ชีต2 header-name resolution (SPEC 3.2 "resolve by header name,
     const sc = severityCounts(swappedEvents)
     assert(
       'o5. swapping two columns (7<->9) still yields the same severity counts -> resolution is by header name, not position',
-      `${sev1.yellow}/${sev1.red}`,
-      `${sc.yellow}/${sc.red}`,
-      sc.yellow === sev1.yellow && sc.red === sev1.red,
+      `${sev1.yellow}/${sev1.red}/${sev1.black}`,
+      `${sc.yellow}/${sc.red}/${sc.black}`,
+      sc.yellow === sev1.yellow && sc.red === sev1.red && sc.black === sev1.black,
     )
   }
 }
 
-// ---------------------------------------------------------------------------- p (new): normalisers
+// ---------------------------------------------------------------------------- p: normalisers
 
 section('p. normalisers (SPEC 4.1/4.2)')
 eq('p1. parseMonth full/abbr/short/numeric', [11, 11, 11, 11, null], ['พฤศจิกายน', 'พ.ย.', 'พฤศจิกา', '11', ''].map(parseMonth))
@@ -844,8 +1181,10 @@ eq(
   ['จ.เชียงใหม่', 'จังหวัดเชียงใหม่', 'กทม', 'โคราช', 'อยุธยา', 'หนองบัวลำพู'].map(normProvince),
 )
 {
-  // The two typo spellings live in ชีต2 col 3; check they map to the province their own zone cell implies.
-  const typoRows = s2Data.filter((r) => raw(r, 3) === 'นตรพนม' || raw(r, 3) === 'ขอนแก่่น')
+  // The typo spellings live in wide col 3; check they map to the province their own zone cell implies.
+  const rawProvinces = [...new Set(s1Data.map((r) => raw(r, 3)))].filter((v) => v !== '' && !ALL_PROVINCES.includes(v))
+  info('raw col-3 spellings that are not already a canonical province name', JSON.stringify(rawProvinces))
+  const typoRows = s1Data.filter((r) => rawProvinces.includes(raw(r, 3)))
   info('typo province rows (zone -> raw -> normalised)', typoRows.map((r) => `${raw(r, 0)} ${raw(r, 3)} -> ${normProvince(raw(r, 3))}`))
   const wrongZone = typoRows.filter((r) => {
     const z = parseInt((raw(r, 0).match(/\d+/) || ['0'])[0], 10)
@@ -857,15 +1196,25 @@ eq(
     JSON.stringify(wrongZone.map((r) => `${raw(r, 0)}/${raw(r, 3)}`)),
     wrongZone.length === 0,
   )
+  assert(
+    'p6. every non-canonical col-3 spelling is repaired by normProvince (none left unresolved)',
+    '[]',
+    JSON.stringify(rawProvinces.filter((v) => !ALL_PROVINCES.includes(normProvince(v)))),
+    rawProvinces.every((v) => ALL_PROVINCES.includes(normProvince(v))),
+  )
 }
+eq(
+  'p7. collapseDoubledMarks heals the observed doubled-mark typo class',
+  ['ขอนแก่น', 'หญิง', 'ไม่มี', 'ต่ำกว่า 18 ปี'],
+  ['ขอนแก่่น', 'หญิิง', 'ไม่่มี', 'ต่ำ่กว่า 18 ปี'].map(collapseDoubledMarks),
+)
 
-// ---------------------------------------------------------------------------- q (new): papaparse parity
+// ---------------------------------------------------------------------------- q: papaparse parity
 
 section('q. papaparse option parity with src/data/fetchSheet.ts (skipEmptyLines: true)')
 {
-  const s2Skip = readCsv('1683387958.csv', true)
   const wideSkip = readCsv('842224166.csv', true)
-  const e2 = parseSheet2(s2Skip)
+  const e2 = parseSheet2(wideSkip)
   const h2 = parseWide(wideSkip)
   const m2 = parseMcatt(wideSkip)
   assert(
@@ -876,7 +1225,61 @@ section('q. papaparse option parity with src/data/fetchSheet.ts (skipEmptyLines:
   )
 }
 
-// ---------------------------------------------------------------------------- extra adversarial checks
+// ---------------------------------------------------------------------------- r: degraded sources
+
+section('r. fallback / legacy schemas — the DOCUMENTED degradation must actually happen')
+{
+  // src/config/sheet.ts and docs/BUILD_NOTES.md both state that GID_WIDE_FALLBACK is NO LONGER a
+  // duplicate: it still serves the pre-restructure 84-column layout. A fallback fetch must
+  // therefore DEGRADE in a known, loggable way — never silently read a neighbouring column.
+  // Number() keeps tsc from narrowing these to literal types and calling the comparison unintentional.
+  eq('r1. GID_WIDE_FALLBACK is a different gid from GID_WIDE', true, Number(GID_WIDE_FALLBACK) !== Number(GID_WIDE))
+  eq('r2. the fallback fixture still has the OLD 84-column schema', 84, fallbackRows[0].length)
+  const fbRes = buildResolver(fallbackRows[0])
+  eq(
+    "r3. on the old schema 'ขาดยา'+'ไม่มาตามนัด' (74, 76) OR into ONE factor, and the deck's new 4th factor has NO column at all",
+    [[74, 76], [75], [], [77]],
+    fbRes.risk,
+  )
+  const fbEvents = parseSheet2(fallbackRows)
+  const fbRisk = riskFactors(fbEvents)
+  assert(
+    'r4. มีการใช้สารเสพติดร่วมด้วย counts 0 on a fallback fetch — it must NOT borrow col 76 (which the old schema calls ไม่มาตามนัด)',
+    '0',
+    String(fbRisk.items[2].value),
+    fbRisk.items[2].value === 0,
+  )
+  const fbStatus = patientStatusCounts(fbEvents)
+  info('fallback patientStatusCounts', fbStatus)
+  assert(
+    "r5. on the old 2-value col 14 the majority 'ผู้ป่วยรายเก่า' is APPENDED verbatim (340), never retagged as ผู้ป่วยจิตเวชรายเก่า",
+    'appended extra ผู้ป่วยรายเก่า=340, ผู้ป่วยจิตเวชรายเก่า=0',
+    JSON.stringify(fbStatus.map((c) => `${c.name}=${c.value}`)),
+    fbStatus[0].value === 0 && fbStatus.length === 6 && fbStatus[5].name === 'ผู้ป่วยรายเก่า' && fbStatus[5].value === 340,
+  )
+  assert(
+    'r6. ...so the risk denominator collapses to the 240 aliased ผู้ป่วยรายใหม่ rows (a visibly degraded, not silently wrong, number)',
+    '240',
+    String(fbRisk.denominator),
+    fbRisk.denominator === 240,
+  )
+  warn(
+    'r4-r6 describe a DEGRADED render, not a correct one. If fetchAllData() ever falls back, the ปัจจัยเสี่ยง chart is wrong in a way only the console.warn reveals. Fix the primary gid, do not rely on the fallback.',
+  )
+
+  // The legacy narrow ชีต2 tab (37 cols) is the layout the LEGACY ALIASES in parseSheet2's COLUMNS
+  // map exist for, and the only one where col 1 really has a blank header — i.e. the only place
+  // the documented `silentFallback` index path is exercised. Keep it under test so the aliases
+  // cannot rot unnoticed, even though the app no longer fetches this tab.
+  eq('r7. the legacy narrow tab has 37 columns', 37, legacyRows[0].length)
+  eq('r8. ...and really does leave the เดือน header blank (this is what silentFallback is for)', '', collapseWs(legacyRows[0][1] ?? ''))
+  const legacyEvents = parseSheet2(legacyRows)
+  assert('r9. the legacy aliases still parse it to 440 events', '440', String(legacyEvents.length), legacyEvents.length === 440)
+  const legacySev = severityCounts(legacyEvents)
+  eq('r10. ...with the legacy tab\'s own severity tally (0 black / 4 red / 436 yellow)', [0, 4, 436], [legacySev.black, legacySev.red, legacySev.yellow])
+}
+
+// ---------------------------------------------------------------------------- extra adversarial
 
 section('EXTRA. province normalisation coverage')
 const pc1 = provinceCounts(events)
@@ -884,15 +1287,15 @@ const extras1 = pc1.slice(ALL_PROVINCES.length)
 info('Section 1 province extras (values normProvince did NOT canonicalise)', extras1)
 info(
   'นครพนม after normalisation',
-  `นครพนม=${pc1.find((cc) => cc.name === 'นครพนม')?.value} (BUILD_NOTES counted 7 rows for the exact spelling; +3 rows spelled 'นตรพนม' are now aliased in)`,
+  `นครพนม=${pc1.find((cc) => cc.name === 'นครพนม')?.value} (the 'นตรพนม' typo rows are aliased in)`,
 )
-assert('x1. every ชีต2 province normalises to one of the 77 known names', '[]', JSON.stringify(extras1), extras1.length === 0)
+assert('x1. every Section-1 province normalises to one of the 77 known names', '[]', JSON.stringify(extras1), extras1.length === 0)
 const pc1Sum = pc1.reduce((s, cc) => s + cc.value, 0)
-assert('x2. province counts sum === 440 (no row silently lost)', '440', String(pc1Sum), pc1Sum === 440)
+assert('x2. province counts sum === 580 (no row silently lost)', '580', String(pc1Sum), pc1Sum === 580)
 const pc2 = provinceCounts(hazards)
 const extras2 = pc2.slice(ALL_PROVINCES.length)
 info('Section 2 province extras', extras2)
-assert('x3. every wide-tab province normalises to a known name', '[]', JSON.stringify(extras2), extras2.length === 0)
+assert('x3. every wide-tab Section-2 province normalises to a known name', '[]', JSON.stringify(extras2), extras2.length === 0)
 const pc2Sum = pc2.reduce((s, cc) => s + cc.value, 0)
 assert('x4. Section 2 province counts sum === 90', '90', String(pc2Sum), pc2Sum === 90)
 
@@ -901,183 +1304,231 @@ const zc = zoneCounts(events)
 info('zoneCounts', zc.map((cc) => `${cc.name}=${cc.value}`).join(' '))
 eq('x5. 13 zone buckets, none appended', 13, zc.length)
 const zcSum = zc.reduce((s, cc) => s + cc.value, 0)
-assert('x6. zone counts sum === 440', '440', String(zcSum), zcSum === 440)
-eq('x7. zone 8 === 91 (BUILD_NOTES)', 91, zc.find((cc) => cc.name === 'เขต 8')?.value)
+assert('x6. zone counts sum === 580', '580', String(zcSum), zcSum === 580)
+// LABEL CHANGE: zoneCounts() now spells the unit out (review deck slide 10) — 'เขตสุขภาพที่ 8',
+// not the clipped 'เขต 8'. x6b pins the label to config's own formatZoneLabel() so the two cannot
+// drift; x7 then reads the bucket by that label.
+eq('x6b. bucket labels are formatZoneLabel(n) === "เขตสุขภาพที่ N"', Array.from({ length: 13 }, (_, i) => formatZoneLabel(i + 1)), zc.map((cc) => cc.name))
+eq('x7. เขตสุขภาพที่ 8 === 114 (the largest zone on the refreshed tab)', 114, zc.find((cc) => cc.name === 'เขตสุขภาพที่ 8')?.value)
 const zc2 = zoneCounts(hazards)
 info('Section 2 zoneCounts', zc2.map((cc) => `${cc.name}=${cc.value}`).join(' '))
 assert(
   'x8. Section 2 zone buckets 2 and 11 are present at 0 (empty zones handled)',
   '0 and 0',
-  `${zc2.find((cc) => cc.name === 'เขต 2')?.value} and ${zc2.find((cc) => cc.name === 'เขต 11')?.value}`,
-  zc2.find((cc) => cc.name === 'เขต 2')?.value === 0 && zc2.find((cc) => cc.name === 'เขต 11')?.value === 0,
+  `${zc2.find((cc) => cc.name === 'เขตสุขภาพที่ 2')?.value} and ${zc2.find((cc) => cc.name === 'เขตสุขภาพที่ 11')?.value}`,
+  zc2.find((cc) => cc.name === 'เขตสุขภาพที่ 2')?.value === 0 && zc2.find((cc) => cc.name === 'เขตสุขภาพที่ 11')?.value === 0,
 )
-// Each parsed row's zone must agree with its province's zone in ZONE_PROVINCES. Now guaranteed
-// by construction: src/data/normalize.ts zoneOf() derives the event's zone from its (already
-// normalised) province via ZONE_PROVINCES/PROVINCE_ZONE, falling back to the row's raw zone cell
-// only when the province is blank/unrecognised — so a row can no longer end up on the wrong
-// zone's map. This assertion stays as a hard check (regression guard), and the raw-cell vs
-// resolved-zone diff below stays visible so the underlying SHEET error (row 402) is not silently
-// hidden by the code-side fix.
 {
   const mism = events.filter((e) => e.zone !== null && e.province !== '' && !(ZONE_PROVINCES[e.zone] ?? []).includes(e.province))
   const where = mism.map((e) => {
-    const i = s2Data.findIndex((r) => raw(r, 5) === e.link && raw(r, 4) === e.headline)
-    return `ชีต2 data row ${i + 1}: เขต ${e.zone} / ${e.province} (${e.province} belongs to zone ${Object.keys(ZONE_PROVINCES).map(Number).find((z) => ZONE_PROVINCES[z].includes(e.province))}) — ${e.headline.slice(0, 40)}`
+    const i = s1Data.findIndex((r) => raw(r, 5) === e.link && raw(r, 4) === e.headline)
+    return `Section-1 data row ${i + 1}: เขต ${e.zone} / ${e.province} (${e.province} belongs to zone ${Object.keys(ZONE_PROVINCES).map(Number).find((z) => ZONE_PROVINCES[z].includes(e.province))}) — ${e.headline.slice(0, 40)}`
   })
   // x8b is a SOURCE-DATA condition: it can only be cleared by editing the Google Sheet, never by
-  // code, because SPEC 4.2 (ratified in BUILD_NOTES) makes the เขตสุขภาพ cell authoritative. It is
-  // reported as a loud WARN so it stays visible without masking real code defects in the verdict.
+  // code, because SPEC 4.2 (ratified in BUILD_NOTES) makes the เขตสุขภาพ cell authoritative.
   if (mism.length === 0) {
-    info("x8b. every ชีต2 row's เขตสุขภาพ agrees with its จังหวัด (source data clean)", 'OK')
+    info("x8b. every Section-1 row's เขตสุขภาพ agrees with its จังหวัด (source data clean)", 'OK')
   } else {
-    warn(`x8b. [SOURCE-DATA — owner must fix the SHEET] ${mism.length} ชีต2 row(s) have a เขตสุขภาพ cell that disagrees with their จังหวัด. Per SPEC 4.2 the app counts them under the CELL's zone: ${JSON.stringify(where)}`)
+    warn(`x8b. [SOURCE-DATA — owner must fix the SHEET] ${mism.length} row(s) have a เขตสุขภาพ cell that disagrees with their จังหวัด. Per SPEC 4.2 the app counts them under the CELL's zone: ${JSON.stringify(where)}`)
   }
   // ------------------------------------------------------------------ x8c (verification gate)
-  // ADVERSARIAL: x8b above CANNOT FAIL while zoneOf() derives the zone FROM the province — it is
-  // a tautology, not independent evidence. The real question is whether the code follows SPEC 4.2.
-  // SPEC 4.2 says: "Zone number parsed from digits in the zone cell." src/data/normalize.ts's
-  // zoneOf() instead derives the zone from the row's normalised province and uses the zone cell
-  // only as a fallback. BUILD_NOTES is SILENT on this — it is an UNRATIFIED deviation, and it
-  // moves a row between two zone buckets on widget 20 / the zone tab. Fail it so a human ratifies
-  // or reverts it; the numbers below make the delta concrete.
-  {
-    const fromCell = new Map<number, number>()
-    for (const r of s2Data) {
-      const m = raw(r, 0).match(/\d+/)
-      if (!m) continue
-      const z = parseInt(m[0], 10)
-      fromCell.set(z, (fromCell.get(z) ?? 0) + 1)
-    }
-    const cellTally = Array.from({ length: 13 }, (_, i) => `${i + 1}:${fromCell.get(i + 1) ?? 0}`).join(' ')
-    const derivedTally = zc.map((cc) => `${cc.name.replace('เขต ', '')}:${cc.value}`).join(' ')
-    const movedRows = s2Data
-      .map((r, i) => ({ row: i + 1, cell: raw(r, 0), prov: normProvince(raw(r, 3)) }))
-      .filter(({ cell: zcell, prov }) => {
-        const m = zcell.match(/\d+/)
-        if (!m || prov === '') return false
-        const declared = parseInt(m[0], 10)
-        const derived = Object.keys(ZONE_PROVINCES).map(Number).find((z) => ZONE_PROVINCES[z].includes(prov))
-        return derived !== undefined && derived !== declared
-      })
-    assert(
-      'x8c. [SPEC 4.2 DEVIATION] zoneOf() must take the zone from the row\'s เขตสุขภาพ cell ("Zone number parsed from digits in the zone cell"), not derive it from the province',
-      `zone tallies identical to the raw เขตสุขภาพ column: ${cellTally}`,
-      `app tallies: ${derivedTally}${derivedTally === cellTally ? ' (identical — zoneOf() honours the zone cell)' : ' — MISMATCH: zoneOf() is overriding the sheet.'} Source-sheet rows whose zone cell disagrees with their province, kept under the CELL's zone per SPEC 4.2: ${JSON.stringify(movedRows.map((r) => `ชีต2 data row ${r.row} (CSV line ${r.row + 1}): cell ${r.cell} -> ${r.prov} = zone ${Object.keys(ZONE_PROVINCES).map(Number).find((z) => ZONE_PROVINCES[z].includes(r.prov))}`))}`,
-      derivedTally === cellTally,
+  // x8b above cannot fail whenever zoneOf() derives the zone FROM the province — it would be a
+  // tautology. x8c is the independent half: SPEC 4.2 says "Zone number parsed from digits in the
+  // zone cell", so the app's 13 tallies must equal a raw tally of col 0 EXACTLY, including the
+  // rows whose zone cell disagrees with their province. (This assertion previously reported a
+  // real DEVIATION — zoneOf() derived the zone from the province; normalize.ts now reads the cell
+  // first, so it stands as a regression guard against that deviation coming back.)
+  const fromCell = new Map<number, number>()
+  for (const r of s1Data) {
+    const m = raw(r, 0).match(/\d+/)
+    if (!m) continue
+    const z = parseInt(m[0], 10)
+    fromCell.set(z, (fromCell.get(z) ?? 0) + 1)
+  }
+  const cellTally = Array.from({ length: 13 }, (_, i) => `${i + 1}:${fromCell.get(i + 1) ?? 0}`).join(' ')
+  // NOTE the strip: the bucket label is 'เขตสุขภาพที่ N' now, not 'เขต N'. Stripping the old
+  // prefix would leave 'สุขภาพที่ 8' and make this comparison fail for a purely cosmetic reason.
+  const derivedTally = zc.map((cc) => `${cc.name.replace('เขตสุขภาพที่ ', '')}:${cc.value}`).join(' ')
+  const movedRows = s1Data
+    .map((r, i) => ({ row: i + 1, cell: raw(r, 0), prov: normProvince(raw(r, 3)) }))
+    .filter(({ cell: zcell, prov }) => {
+      const m = zcell.match(/\d+/)
+      if (!m || prov === '') return false
+      const declared = parseInt(m[0], 10)
+      const derived = Object.keys(ZONE_PROVINCES).map(Number).find((z) => ZONE_PROVINCES[z].includes(prov))
+      return derived !== undefined && derived !== declared
+    })
+  assert(
+    'x8c. [SPEC 4.2 regression guard] zoneOf() takes the zone from the row\'s เขตสุขภาพ cell, never from the province',
+    `zone tallies identical to the raw เขตสุขภาพ column: ${cellTally}`,
+    `app tallies: ${derivedTally}${derivedTally === cellTally ? ' (identical — zoneOf() honours the zone cell)' : ' — MISMATCH: zoneOf() is overriding the sheet.'}`,
+    derivedTally === cellTally,
+  )
+  if (movedRows.length > 0) {
+    warn(
+      `[SOURCE-DATA] ${movedRows.length} Section-1 row(s) have a เขตสุขภาพ cell that contradicts their จังหวัด; SPEC 4.2 keeps them under the CELL's zone: ${JSON.stringify(
+        movedRows.map((r) => `row ${r.row} (CSV line ${r.row + 1}): cell ${r.cell} -> ${r.prov} = zone ${Object.keys(ZONE_PROVINCES).map(Number).find((z) => ZONE_PROVINCES[z].includes(r.prov))}`),
+      )}`,
     )
   }
-  // Visibility: even though zoneOf() now heals it, list every row whose RAW เขตสุขภาพ cell (col 0)
-  // disagrees with what its จังหวัด cell implies, so the sheet-side error is still surfaced.
-  const rawDisagree = s2Data
-    .map((r, i) => ({ row: i + 1, zoneCell: raw(r, 0), province: normProvince(raw(r, 3)) }))
-    .filter(({ zoneCell, province }) => {
-      const m = zoneCell.match(/\d+/)
-      if (!m || province === '') return false
-      return !(ZONE_PROVINCES[parseInt(m[0], 10)] ?? []).includes(province)
-    })
+}
+
+// ---------------------------------------------------------------------------- risk / signs
+
+section('EXTRA. risk factors / warning signs (deck slides 13-14, FLAG columns)')
+
+/**
+ * INDEPENDENT re-implementation of the ประเภทผู้ป่วย normalisation, written from the deck /
+ * BUILD_NOTES rules rather than by calling normPatientStatus(): strip the literal quote wrapper,
+ * collapse whitespace (including around the '/'), alias the single surviving legacy spelling.
+ * Everything in this section derives its denominator from THIS, not from the app.
+ */
+const indepStatus = (v: string): string => {
+  let t = v.trim().replace(/\s+/g, ' ')
+  if (t === '' || t === '-') return ''
+  t = t.replace(/^"+/, '').replace(/"+$/, '').trim()
+  t = t.replace(/\s*\/\s*/g, '/')
+  if (t === 'ผู้ป่วยรายใหม่') return 'ผู้ป่วยจิตเวชรายใหม่'
+  return t
+}
+const FOUR_STATUSES = ['ผู้ป่วยจิตเวชรายเก่า', 'ผู้ป่วยจิตเวชรายใหม่', 'ผู้ใช้สารเสพติดรายเก่า', 'ผู้ใช้สารเสพติดรายใหม่']
+/** A flag column is "set" iff its own cell is non-blank — the whole point of the 2026-09-12 refresh. */
+const flagSet = (r: string[], col: number): boolean => {
+  const v = raw(r, col)
+  return v !== '' && v !== '-'
+}
+const RISK_COLS = [74, 75, 76, 77]
+/** DISPLAY order (SIGN_KEYWORDS order), which is deliberately NOT the column order 78..82. */
+const SIGN_COLS_IN_DISPLAY_ORDER = [81, 82, 80, 78, 79]
+
+const rf = riskFactors(events)
+info('riskFactors', rf)
+eq('x9. risk-factor denominator === 417 (the 4 psychiatric/substance ประเภทผู้ป่วย statuses, ไม่ใช่ฯ excluded)', 417, rf.denominator)
+eq('x9a. the denominator statuses are the first 4 of CATEGORY_ORDERS.patientStatus5', FOUR_STATUSES, RISK_DENOMINATOR_STATUSES)
+assert('x10. risk affected <= denominator', `<= ${rf.denominator}`, String(rf.affected), rf.affected <= rf.denominator)
+eq('x10b. risk affected === 413 (99.0% of the denominator carry >= 1 factor)', 413, rf.affected)
+eq('x10c. the 4 factor labels, in deck slide-13 order', RISK_KEYWORDS.map((k) => k.label), rf.items.map((i) => i.name))
+
+const ws = warningSigns(events)
+info('warningSigns', ws)
+eq('x11. warning-sign denominator === 580 (ALL events — deck slide 14)', 580, ws.denominator)
+assert('x12. sign affected <= denominator', '<= 580', String(ws.affected), ws.affected <= ws.denominator)
+eq('x12b. sign affected === 350 (60.3% of all rows carry >= 1 sign)', 350, ws.affected)
+eq('x12c. the 5 sign labels, in SIGN_KEYWORDS display order', SIGN_KEYWORDS.map((k) => k.label), ws.items.map((i) => i.name))
+
+// INDEPENDENT recompute of the whole deck slide-13/14 calculation, straight off the raw flag
+// columns. This shares NOTHING with riskFactors()/warningSigns(): its own status normaliser, its
+// own denominator, its own column list, its own flag test.
+{
+  const denomRows = s1Data.filter((r) => FOUR_STATUSES.includes(indepStatus(raw(r, 14))))
+  eq('x9c. independent raw denominator off col 14 === 417', 417, denomRows.length)
+  const riskRaw = RISK_COLS.map((c) => denomRows.filter((r) => flagSet(r, c)).length)
+  eq('x9b. independent raw recompute of the 4 risk factors off cols 74-77', riskRaw, rf.items.map((i) => i.value))
+  eq('x9d. ...and those values are [236, 213, 105, 31] (BUILD_NOTES)', [236, 213, 105, 31], riskRaw)
+  const riskAffected = denomRows.filter((r) => RISK_COLS.some((c) => flagSet(r, c))).length
+  eq('x9e. independent raw "at least one factor" count === 413', riskAffected, rf.affected)
+
+  // The denominator rule is load-bearing ONLY if scoping actually changes something. Prove that
+  // the excluded ไม่ใช่ฯ rows really are excluded, and that no risk flag is being thrown away.
+  const riskAll = RISK_COLS.map((c) => s1Data.filter((r) => flagSet(r, c)).length)
+  info('the same flag counts over ALL 580 rows (the wrong denominator)', JSON.stringify(riskAll))
+  eq(
+    'x9f. no risk flag sits on an excluded ไม่ใช่ผู้ป่วยจิตเวช/ไม่ใช่ผู้ใช้สารเสพติด row (scoping drops rows, never flags)',
+    riskAll,
+    riskRaw,
+  )
+  const excludedRows = s1Data.length - denomRows.length
+  assert(
+    'x9g. the denominator rule really excludes the 163 ไม่ใช่ฯ rows (580 - 417)',
+    '163',
+    String(excludedRows),
+    excludedRows === 163,
+  )
+
+  const signRaw = SIGN_COLS_IN_DISPLAY_ORDER.map((c) => s1Data.filter((r) => flagSet(r, c)).length)
+  eq('x11b. independent raw recompute of the 5 warning signs off cols 78-82, in display order', signRaw, ws.items.map((i) => i.value))
+  eq('x11e. ...and those values are [231, 147, 146, 165, 108] (BUILD_NOTES)', [231, 147, 146, 165, 108], signRaw)
+  const signAffected = s1Data.filter((r) => SIGN_COLS_IN_DISPLAY_ORDER.some((c) => flagSet(r, c))).length
+  eq('x11f. independent raw "at least one sign" count === 350', signAffected, ws.affected)
+  // The display-order mapping is the subtle part: SIGN_KEYWORDS[i] must own COLUMN
+  // SIGN_COLS_IN_DISPLAY_ORDER[i]. Reading 78..82 in column order instead would shuffle every bar.
+  eq(
+    'x11g. reading the sign columns in COLUMN order (78..82) gives a DIFFERENT vector — the display-order mapping is load-bearing',
+    false,
+    JSON.stringify([78, 79, 80, 81, 82].map((c) => s1Data.filter((r) => flagSet(r, c)).length)) === JSON.stringify(signRaw),
+  )
+
+  // ------------------------------------------------------------------ x11c (verification gate)
+  // The redesign's core assumption is that cols 74-82 are CLEAN SINGLE-VALUE flag columns (the old
+  // free-text keyword scan is gone). If any of them ever carries a second value, a flag test on
+  // "non-blank" silently counts something else. Pin each column to exactly one non-blank value,
+  // equal to its own header.
+  const impure: string[] = []
+  for (const c of [...RISK_COLS, 78, 79, 80, 81, 82, 83]) {
+    const vals = [...new Set(s1Data.map((r) => raw(r, c)).filter((v) => v !== ''))]
+    const header = collapseWs(wideRows[0][c] ?? '')
+    if (vals.length !== 1 || vals[0] !== header) impure.push(`col ${c} (header ${JSON.stringify(header)}): ${JSON.stringify(vals)}`)
+  }
+  assert(
+    'x11c. every flag column (74-77, 78-82, 83) holds exactly ONE non-blank value, equal to its own header',
+    '[]',
+    JSON.stringify(impure),
+    impure.length === 0,
+  )
   info(
-    'raw ชีต2 rows whose col-0 เขตสุขภาพ cell disagrees with its col-3 จังหวัด (healed by zoneOf(), sheet still needs fixing)',
-    rawDisagree.map((r) => `row ${r.row}: ${r.zoneCell} / ${r.province}`),
+    'flag column fill counts 74-83',
+    JSON.stringify([...RISK_COLS, 78, 79, 80, 81, 82, 83].map((c) => `${c}:${s1Data.filter((r) => flagSet(r, c)).length}`)),
+  )
+
+  // ------------------------------------------------------------------ x11d: the sheet's own answer
+  // Col 84 ('5สัญญาณเตือน' มี/ไม่มี) and col 83 ('ไม่มีอการทางจิตเวช') are the sheet's OWN answers
+  // to the same question the 78-82 flags encode. They are an independent editorial cross-check,
+  // so a disagreement is a SOURCE-DATA finding, not a code defect — reported, not failed.
+  const answerVsFlags = events.filter((e) => (e.fiveSignsAnswer === 'มี') !== e.signFlags.some(Boolean)).length
+  const neither = s1Data.filter((r) => !SIGN_COLS_IN_DISPLAY_ORDER.some((c) => flagSet(r, c)) && !flagSet(r, 83)).length
+  const both = s1Data.filter((r) => SIGN_COLS_IN_DISPLAY_ORDER.some((c) => flagSet(r, c)) && flagSet(r, 83)).length
+  info("col-84 'มี' count vs flag-derived affected", `${s1Data.filter((r) => raw(r, 84) === 'มี').length} vs ${ws.affected}`)
+  assert(
+    'x11d. the app reproduces the FLAG-derived answer (350), not the sheet\'s col-84 answer (355) — the two are different questions',
+    '350 from flags',
+    `${ws.affected} from flags, ${s1Data.filter((r) => raw(r, 84) === 'มี').length} from col 84`,
+    ws.affected === 350,
+  )
+  warn(
+    `[SOURCE-DATA] the sheet's own 5สัญญาณเตือน answer (col 84) disagrees with its own 78-82 flag columns on ${answerVsFlags} row(s); ${neither} row(s) carry neither a sign flag nor the 'ไม่มีอการทางจิตเวช' flag (col 83), and ${both} row(s) carry BOTH. The charts follow the flag columns. Owner to reconcile the sheet.`,
   )
 }
 
-section('EXTRA. risk factors / warning signs / gender / impact')
-const rf = riskFactors(events)
-info('riskFactors', rf)
-eq('x9. risk-factor denominator === 260 ผู้ป่วยรายเก่า (SPEC 4.4)', 260, rf.denominator)
-assert('x10. risk affected <= denominator', `<= ${rf.denominator}`, String(rf.affected), rf.affected <= rf.denominator)
-const ws = warningSigns(events)
-info('warningSigns', ws)
-eq('x11. warning-sign denominator === 440 (all events)', 440, ws.denominator)
-assert('x12. sign affected <= denominator', '<= 440', String(ws.affected), ws.affected <= ws.denominator)
-// Independent recompute of the whole SPEC 4.4 keyword scan, straight off the CSV.
-{
-  const join = (r: string[]): string => {
-    const out: string[] = []
-    for (let i = 27; i <= 36; i++) {
-      const v = raw(r, i)
-      if (v !== '' && v !== '-') out.push(v)
-    }
-    return out.join(' ')
-  }
-  const oldRows = s2Data.filter((r) => raw(r, 14) === 'ผู้ป่วยรายเก่า')
-  const riskRaw = RISK_KEYWORDS.map((k) =>
-    oldRows.filter((r) => (k.cellIndex !== undefined ? raw(r, 27 + k.cellIndex) !== '' && raw(r, 27 + k.cellIndex) !== '-' : k.keywords.some((kw) => join(r).includes(kw)))).length,
-  )
-  eq('x9b. independent raw recompute of the 3 risk factors', riskRaw, rf.items.map((i) => i.value))
-  const signRaw = SIGN_KEYWORDS.map((k) => s2Data.filter((r) => k.keywords.some((kw) => join(r).includes(kw))).length)
-  eq('x11b. independent raw recompute of the 5 warning signs', signRaw, ws.items.map((i) => i.value))
-  const riskAll = RISK_KEYWORDS.map((k) =>
-    s2Data.filter((r) => (k.cellIndex !== undefined ? raw(r, 27 + k.cellIndex) !== '' && raw(r, 27 + k.cellIndex) !== '-' : k.keywords.some((kw) => join(r).includes(kw)))).length,
-  )
-  info('risk factors if the SAME scan ran over all 440 rows instead of the 260 ผู้ป่วยรายเก่า', JSON.stringify(riskAll))
-  warn(
-    `riskFactors() scans only the ${rf.denominator} ผู้ป่วยรายเก่า rows. SPEC 4.4 fixes the DENOMINATOR to that subset but does not say the numerator is scoped the same way; over all 440 rows the factors would read ${JSON.stringify(riskAll)} instead of ${JSON.stringify(rf.items.map((i) => i.value))}. Author's choice, documented in aggregate.ts — flagged for the owner, not failed.`,
-  )
-  const unmatched = new Set<string>()
-  for (const r of s2Data) {
-    for (let i = 27; i <= 30; i++) {
-      const v = raw(r, i)
-      if (v === '' || v === '-') continue
-      const hit = RISK_KEYWORDS.some((k) => k.keywords.some((kw) => v.includes(kw))) || SIGN_KEYWORDS.some((k) => k.keywords.some((kw) => v.includes(kw)))
-      if (!hit) unmatched.add(v)
-    }
-  }
-  info('risk-cell (27-30) values that match NO SPEC 4.4 keyword', JSON.stringify([...unmatched]))
-  warn(
-    `ชีต2 col 27 contains 'ขายยา' and 'รักษาต่อเนื่อง', which match no SPEC 4.4 keyword. 'ขายยา' is one keystroke from 'ขาดยา'; if it is a typo the ขาดยา/ไม่มาตามนัด factor is 1 short. Owner call — not failed here.`,
-  )
-  // ------------------------------------------------------------------ x11c (verification gate)
-  // GAP IN THE PREVIOUS GATE: only the RISK cells (27-30) were scanned for values that match no
-  // SPEC 4.4 keyword. The SIGN cells (31-36) were never checked, so a warning sign silently
-  // dropped by the keyword list would not have been caught. Every unmatched sign value must be an
-  // explicit "no symptoms" statement — anything else means warningSigns() is undercounting.
-  {
-    const NO_SYMPTOM_OK = ['ไม่มีอาการ', 'ไม่มีอาการทางจิตเวช']
-    const unmatchedSigns = new Map<string, number>()
-    for (const r of s2Data) {
-      for (let i = 31; i <= 36; i++) {
-        const v = raw(r, i)
-        if (v === '' || v === '-') continue
-        const hit = SIGN_KEYWORDS.some((k) => k.keywords.some((kw) => v.includes(kw)))
-        if (!hit) unmatchedSigns.set(v, (unmatchedSigns.get(v) ?? 0) + 1)
-      }
-    }
-    info('sign-cell (31-36) values that match NO SPEC 4.4 keyword', JSON.stringify([...unmatchedSigns.entries()]))
-    const realMisses = [...unmatchedSigns.keys()].filter((v) => !NO_SYMPTOM_OK.includes(v) && !/^\d+$/.test(v))
-    assert(
-      'x11c. no warning sign is silently dropped: every unmatched sign-cell (31-36) value is an explicit "no symptoms" statement or a stray digit',
-      '[]',
-      JSON.stringify(realMisses),
-      realMisses.length === 0,
-    )
-    // The typo 'วาดระแวง' (missing ห) IS present in col 28 and IS caught, because SPEC 4.4's
-    // keyword is the substring 'ระแวง' rather than the full word. Prove that, don't assume it.
-    const paranoidTypos = s2Data.filter((r) => [...Array(10).keys()].some((k) => raw(r, 27 + k).includes('วาดระแวง') && !raw(r, 27 + k).includes('หวาดระแวง')))
-    info("rows carrying the 'วาดระแวง' typo (missing ห)", paranoidTypos.length)
-    const typoCaught = paranoidTypos.every((r) => {
-      const t = join(r)
-      return SIGN_KEYWORDS.find((k) => k.key === 'paranoid')!.keywords.some((kw) => t.includes(kw))
-    })
-    assert(
-      "x11d. the 'วาดระแวง' typo still counts as เที่ยวหวาดระแวง (substring keyword 'ระแวง')",
-      'all caught',
-      typoCaught ? 'all caught' : 'MISSED',
-      typoCaught,
-    )
-  }
-}
+// ---------------------------------------------------------------------------- gender / impact
+
+section('EXTRA. gender / impact')
 const gs = genderSplit(events)
 info('genderSplit', gs)
-eq('x13. genderSplit', { male: 393, female: 47, other: 0, total: 440 }, gs)
+eq('x13. genderSplit', { male: 520, female: 60, other: 0, total: 580 }, gs)
+{
+  // normGender() must fold the single 'หญิิง' (doubled สระอิ) row into หญิง — otherwise it lands
+  // in `other` and the gender donut quietly grows a third slice.
+  const rawGender = new Map<string, number>()
+  for (const r of s1Data) rawGender.set(raw(r, 9), (rawGender.get(raw(r, 9)) ?? 0) + 1)
+  info('raw col-9 spellings', JSON.stringify([...rawGender.entries()]))
+  const rawMale = rawGender.get('ชาย') ?? 0
+  const rawFemaleExact = rawGender.get('หญิง') ?? 0
+  const rawFemaleAll = [...rawGender.entries()].filter(([k]) => collapseDoubledMarks(k) === 'หญิง').reduce((s, [, n]) => s + n, 0)
+  assert(
+    'x13b. the doubled-mark หญิิง row is folded into หญิง (an exact-match count would be 1 short)',
+    `${rawMale}/${rawFemaleAll} (exact-หญิง would be ${rawFemaleExact})`,
+    `${gs.male}/${gs.female}`,
+    gs.male === rawMale && gs.female === rawFemaleAll && rawFemaleAll > rawFemaleExact,
+  )
+}
 const impact = impactByPatientGroup(events)
 info('impactByPatientGroup', impact)
 const impactFinite = impact.every((r) => Number.isFinite(r.deaths) && Number.isFinite(r.injured))
 assert("x14. every deaths/injured is finite ('-' and blank parse to 0, never NaN)", 'true', String(impactFinite), impactFinite)
 eq('x15. impactByPatientGroup has the 5 fixed groups, no extras', 5, impact.length)
+const rawDeaths = s1Data.reduce((s, r) => s + (/^\d+$/.test(raw(r, 23)) ? parseInt(raw(r, 23), 10) : 0), 0)
+const rawInjured = s1Data.reduce((s, r) => s + (/^\d+$/.test(raw(r, 22)) ? parseInt(raw(r, 22), 10) : 0), 0)
 {
-  const rawDeaths = s2Data.reduce((s, r) => s + (/^\d+$/.test(raw(r, 23)) ? parseInt(raw(r, 23), 10) : 0), 0)
-  const rawInjured = s2Data.reduce((s, r) => s + (/^\d+$/.test(raw(r, 22)) ? parseInt(raw(r, 22), 10) : 0), 0)
   const gotDeaths = impact.reduce((s, r) => s + r.deaths, 0)
   const gotInjured = impact.reduce((s, r) => s + r.injured, 0)
   assert(
@@ -1086,24 +1537,180 @@ eq('x15. impactByPatientGroup has the 5 fixed groups, no extras', 5, impact.leng
     `${gotDeaths}/${gotInjured}`,
     rawDeaths === gotDeaths && rawInjured === gotInjured,
   )
+  eq('x16b. ...and those raw sums are 150 deaths / 227 injured', [150, 227], [rawDeaths, rawInjured])
 }
+
+// ---------------------------------------------------------------------------- NEW deck aggregates
+
+section('EXTRA. new deck aggregates (patientStatus / group7 / ageBand / suicideAgeGroup)')
+
+const status5 = patientStatusCounts(events)
+info('patientStatusCounts', status5)
+eq('x24. the 5 statuses, in CATEGORY_ORDERS.patientStatus5 order, no extras', CATEGORY_ORDERS.patientStatus5, status5.map((c) => c.name))
+eq('x24b. counts === [269, 8, 67, 73, 163] (BUILD_NOTES: 7 จิตเวชรายใหม่ + 1 aliased legacy row)', [269, 8, 67, 73, 163], status5.map((c) => c.value))
+assert('x24c. they sum to 580 — every Section-1 row has a status', '580', String(status5.reduce((s, c) => s + c.value, 0)), status5.reduce((s, c) => s + c.value, 0) === 580)
+{
+  // Independent recompute with the gate's OWN normaliser (indepStatus), not normPatientStatus().
+  const tally = new Map<string, number>()
+  for (const r of s1Data) tally.set(indepStatus(raw(r, 14)), (tally.get(indepStatus(raw(r, 14))) ?? 0) + 1)
+  info('independent raw col-14 tally', JSON.stringify([...tally.entries()]))
+  eq('x24d. independent raw col-14 tally matches patientStatusCounts', CATEGORY_ORDERS.patientStatus5.map((l) => tally.get(l) ?? 0), status5.map((c) => c.value))
+  const rawExact = s1Data.filter((r) => raw(r, 14) === 'ผู้ป่วยจิตเวชรายใหม่').length
+  const rawLegacy = s1Data.filter((r) => raw(r, 14) === 'ผู้ป่วยรายใหม่').length
+  assert(
+    'x24e. the 8 ผู้ป่วยจิตเวชรายใหม่ are 7 exact + 1 aliased legacy ผู้ป่วยรายใหม่ row (a documented judgement call, not data)',
+    '7 + 1',
+    `${rawExact} + ${rawLegacy}`,
+    rawExact === 7 && rawLegacy === 1,
+  )
+  const quoted = s1Data.filter((r) => raw(r, 14).startsWith('"')).length
+  assert(
+    'x24f. the 163 ไม่ใช่ฯ rows arrive quote-wrapped and are unwrapped into ONE slice, not a look-alike 6th',
+    '163 quote-wrapped, 0 extras appended',
+    `${quoted} quote-wrapped, ${status5.length - 5} extras`,
+    quoted === 163 && status5.length === 5,
+  )
+}
+
+const g7 = patientGroup7Counts(events)
+info('patientGroup7Counts', g7)
+eq('x25. the deck\'s 7 short group labels, in order, no extras', CATEGORY_ORDERS.patientGroup7, g7.map((c) => c.name))
+eq('x25b. counts === [88, 26, 116, 43, 140, 26, 141]', [88, 26, 116, 43, 140, 26, 141], g7.map((c) => c.value))
+assert('x25c. they sum to 580', '580', String(g7.reduce((s, c) => s + c.value, 0)), g7.reduce((s, c) => s + c.value, 0) === 580)
+{
+  // Independent recompute: "text before the first ' ('", applied straight to raw col 12. No alias
+  // table, so this also proves PATIENT_GROUP7_ALIASES agrees with the plain structural rule.
+  const shortOf = (v: string): string => {
+    const t = v.trim().replace(/\s+/g, ' ')
+    const i = t.indexOf(' (')
+    return i > 0 ? t.slice(0, i).trim() : t
+  }
+  const tally = new Map<string, number>()
+  for (const r of s1Data) {
+    const k = shortOf(raw(r, 12))
+    if (k === '' || k === '-') continue
+    tally.set(k, (tally.get(k) ?? 0) + 1)
+  }
+  info('independent raw col-12 short-label tally', JSON.stringify([...tally.entries()]))
+  eq('x25d. independent raw col-12 tally matches patientGroup7Counts', CATEGORY_ORDERS.patientGroup7.map((l) => tally.get(l) ?? 0), g7.map((c) => c.value))
+  const unknown = [...tally.keys()].filter((k) => !CATEGORY_ORDERS.patientGroup7.includes(k))
+  assert('x25e. no col-12 value falls outside the 7 groups', '[]', JSON.stringify(unknown), unknown.length === 0)
+  // The 3-slice pie and the 7-group chart read the SAME column and must not contradict each other.
+  eq(
+    'x25f. the 3 psychiatric slices of the pie === the first 3 groups of the 7-group chart',
+    pie.map((c) => c.value),
+    g7.slice(0, 3).map((c) => c.value),
+  )
+}
+
+const i7 = impactByGroup7(events)
+info('impactByGroup7', i7)
+eq('x26. the 7 deck groups, in order, no extras', CATEGORY_ORDERS.patientGroup7, i7.map((r) => r.group))
+assert(
+  'x26b. its deaths/injured totals equal the raw col-22/23 sums (nothing lost by the 7-way split)',
+  `${rawDeaths}/${rawInjured}`,
+  `${i7.reduce((s, r) => s + r.deaths, 0)}/${i7.reduce((s, r) => s + r.injured, 0)}`,
+  i7.reduce((s, r) => s + r.deaths, 0) === rawDeaths && i7.reduce((s, r) => s + r.injured, 0) === rawInjured,
+)
+eq(
+  'x26c. ...and so do impactByPatientGroup\'s — two different splits of the same two columns must agree on the total',
+  [impact.reduce((s, r) => s + r.deaths, 0), impact.reduce((s, r) => s + r.injured, 0)],
+  [i7.reduce((s, r) => s + r.deaths, 0), i7.reduce((s, r) => s + r.injured, 0)],
+)
+eq('x26d. per-group deaths === [31, 4, 27, 11, 25, 3, 49]', [31, 4, 27, 11, 25, 3, 49], i7.map((r) => r.deaths))
+eq('x26e. per-group injured === [41, 12, 38, 15, 50, 7, 64]', [41, 12, 38, 15, 50, 7, 64], i7.map((r) => r.injured))
+
+const abc = ageBandCounts(events)
+info('ageBandCounts', abc)
+eq('x27. the 6 SPEC 4.3 bands, in order', AGE_BANDS.map((b) => b.label), abc.map((c) => c.name))
+eq('x27b. ageBandCounts values === ageBandByGender totals (the two views cannot disagree)', bands.map((b) => b.total), abc.map((c) => c.value))
+assert('x27c. they sum to 580', '580', String(abc.reduce((s, c) => s + c.value, 0)), abc.reduce((s, c) => s + c.value, 0) === 580)
+
+{
+  const sag = countBy(events, (r) => r.suicideAgeGroup, CATEGORY_ORDERS.suicideAgeGroup)
+  info('ช่วงอายุวัย (col 11) counts', sag)
+  eq('x28. the 2 fixed ช่วงอายุวัย values, no extras', CATEGORY_ORDERS.suicideAgeGroup, sag.map((c) => c.name))
+  eq('x28b. counts === [27, 553]', [27, 553], sag.map((c) => c.value))
+  // normSuicideAgeGroup() does two repairs; both must be load-bearing, or the under-18 bar empties.
+  const rawUnder18Exact = s1Data.filter((r) => raw(r, 11) === 'ต่ำกว่า 18 ปี').length
+  const rawUnder18NoUnit = s1Data.filter((r) => raw(r, 11) === 'ต่ำกว่า 18').length
+  const rawUnder18Typo = s1Data.filter((r) => raw(r, 11) === 'ต่ำ่กว่า 18 ปี').length
+  info('raw col-11 under-18 spellings', `'ต่ำกว่า 18 ปี'=${rawUnder18Exact} 'ต่ำกว่า 18'=${rawUnder18NoUnit} 'ต่ำ่กว่า 18 ปี'=${rawUnder18Typo}`)
+  assert(
+    "x28c. the deck's 'ต่ำกว่า 18 ปี' bar is built ENTIRELY from rows the sheet spells differently (0 exact matches) — an unnormalised countBy would show 0",
+    '0 exact, 26 without ปี, 1 doubled-mark typo',
+    `${rawUnder18Exact} exact, ${rawUnder18NoUnit} without ปี, ${rawUnder18Typo} typo`,
+    rawUnder18Exact === 0 && rawUnder18NoUnit + rawUnder18Typo === 27,
+  )
+}
+
+// ---------------------------------------------------------------------------- typo-class sweep
+
+section('EXTRA. doubled-combining-mark typo sweep across every categorical column')
+{
+  // normalize.ts heals the doubled-mark typo class (BUILD_NOTES) for province, gender,
+  // ช่วงอายุวัย and ประเภทผู้ป่วย. Any OTHER categorical column where two parsed categories
+  // collapse to the same string under collapseDoubledMarks is the SAME defect left unhealed: the
+  // chart renders two look-alike slices for one value. Sweep them all rather than guessing.
+  const fields: [string, (e: SLEvent) => string][] = [
+    ['province', (e) => e.province],
+    ['gender', (e) => e.gender],
+    ['patientStatus', (e) => e.patientStatus],
+    ['patientGroup', (e) => e.patientGroup],
+    ['diagnosis', (e) => e.diagnosis],
+    ['treatmentHistory', (e) => e.treatmentHistory],
+    ['suicide', (e) => e.suicide],
+    ['suicideMethod', (e) => e.suicideMethod],
+    ['suicideCause', (e) => e.suicideCause],
+    ['suicideLocation', (e) => e.suicideLocation],
+    ['suicideAgeGroup', (e) => e.suicideAgeGroup],
+    ['assistance', (e) => e.assistance],
+    ['reporting', (e) => e.reporting],
+  ]
+  const collisions: string[] = []
+  for (const [name, pick] of fields) {
+    const cats = countBy(events, pick)
+    const byHealed = new Map<string, { name: string; value: number }[]>()
+    for (const c of cats) {
+      const key = collapseDoubledMarks(collapseWs(c.name))
+      byHealed.set(key, [...(byHealed.get(key) ?? []), c])
+    }
+    for (const [key, group] of byHealed) {
+      if (group.length > 1) collisions.push(`${name}: ${JSON.stringify(group)} all collapse to ${JSON.stringify(key)}`)
+    }
+  }
+  assert(
+    'x29. [src BUG when non-empty] no categorical column splits one value into two look-alike categories that differ only by a doubled Thai combining mark',
+    '[]',
+    JSON.stringify(collisions),
+    collisions.length === 0,
+  )
+  if (collisions.length > 0) {
+    warn(
+      'x29. normalize.ts already heals this exact typo class for province / gender / ช่วงอายุวัย / ประเภทผู้ป่วย (collapseDoubledMarks). The column(s) listed above are NOT passed through it in src/data/parseSheet2.ts, so their chart shows two slices for one value. Fix is in src/, not in the sheet.',
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------- applyFilters
 
 section('EXTRA. applyFilters (SPEC 5.2) — Buddhist-year contract')
 {
   const base: Filters = { fromMonth: '', toMonth: '', zone: 'all', province: '', hazardType: 'all' }
   const all = applyFilters(events, hazards, base)
-  assert('x17. no filter -> everything passes through', '440/90', `${all.sl.length}/${all.hz.length}`, all.sl.length === 440 && all.hz.length === 90)
+  assert('x17. no filter -> everything passes through', '580/90', `${all.sl.length}/${all.hz.length}`, all.sl.length === 580 && all.hz.length === 90)
   const social = applyFilters(events, hazards, { ...base, hazardType: 'social' })
-  assert('x18. ประเภทภัย = Social Listening hides Section 2', '440/0', `${social.sl.length}/${social.hz.length}`, social.sl.length === 440 && social.hz.length === 0)
+  assert('x18. ประเภทภัย = Social Listening hides Section 2', '580/0', `${social.sl.length}/${social.hz.length}`, social.sl.length === 580 && social.hz.length === 0)
   const hazAll = applyFilters(events, hazards, { ...base, hazardType: 'hazards' })
   assert('x19. ภัยอื่นๆ (รวม) hides Section 1', '0/90', `${hazAll.sl.length}/${hazAll.hz.length}`, hazAll.sl.length === 0 && hazAll.hz.length === 90)
   const transport = applyFilters(events, hazards, { ...base, hazardType: 'transport' })
   assert('x20. a single hazard key restricts Section 2 to that flag (transport = 57)', '0/57', `${transport.sl.length}/${transport.hz.length}`, transport.sl.length === 0 && transport.hz.length === 57)
   const zone8 = applyFilters(events, hazards, { ...base, zone: 8 })
-  assert('x21. zone filter 8 -> 91 ชีต2 rows', '91', String(zone8.sl.length), zone8.sl.length === 91)
+  assert('x21. zone filter 8 -> 114 Section-1 rows (agrees with zoneCounts)', '114', String(zone8.sl.length), zone8.sl.length === 114)
   const be = applyFilters(events, hazards, { ...base, fromMonth: '2569-01', toMonth: '2569-06' })
   const rawBe = events.filter((e) => e.sortKey >= 2569 * 12 + 1 && e.sortKey <= 2569 * 12 + 6).length
   assert('x22. month range is read as a BUDDHIST year (2569-01..2569-06)', String(rawBe), String(be.sl.length), be.sl.length === rawBe && rawBe > 0)
+  eq('x22b. ...and that range holds 346 rows', 346, be.sl.length)
   const ce = applyFilters(events, hazards, { ...base, fromMonth: '2026-01', toMonth: '2026-06' })
   assert(
     'x23. a GREGORIAN month-input value matches nothing — the UI must convert CE->BE before calling applyFilters',

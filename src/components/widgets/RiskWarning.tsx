@@ -1,23 +1,33 @@
-// SPEC 6.1 #1 and #2, PDF p.2, SPEC 4.4 — the risk-factor and warning-sign infographics. Each is
-// its own polished infographic widget (not a chart, no switcher), matching the two-column pill
-// design of docs/reference/site1/index.html renderRiskWarningInfographic() but recomposed with
-// our design tokens and lucide-react icons in place of Font Awesome.
+// SPEC 6.1 #1 and #2, review deck แก้งับ.pdf slides 13-14 — the risk-factor and warning-sign
+// infographics. Each is its own polished infographic widget (not a chart, no switcher), keeping
+// the pill-row layout the deck explicitly asked to leave alone ("ตัวชุดข้อมูลก็ แบบเดิมเลย ดูง่าย").
 //
-// UX-11: both aggregates (src/data/aggregate.ts riskFactors / warningSigns) count EVENTS, and one
-// event can match several categories, so the category counts legitimately add up to more than the
-// number of affected events. Every figure here therefore names its own base, and the per-category
-// percentages are taken over `affected` (the events that carry at least one factor/sign) so the
-// "53 + 22 + 4 vs 64" arithmetic can be explained without guessing.
+// PERCENTAGE BASE — deck slide 13 (supersedes the earlier UX-11 note, which divided every
+// per-category percentage by `affected`): the deck states the rule as a worked example — 100
+// people in 5 equal groups, only 80 of whom can carry a factor, so "ขาดยา 20" must read
+// 20*100/80 = 25%. Every per-item percentage here is therefore value / `denominator`, NEVER
+// value / `affected`. `affected` survives only in the summary banner ("how many of the base carry
+// at least one"), which is the one figure it is actually the answer to.
+//
+// The two bases differ on purpose and are named on the card so 417 vs 580 can never read as a bug:
+//   risk — only the four จิตเวช/สารเสพติด statuses can carry a factor (riskFactors' denominator),
+//          so the card prints a qualifier line naming that narrowed base.
+//   sign — every filtered event, because anyone can show a warning sign (warningSigns').
+//
+// Deck slide 9 asks both cards to be framed and prominent ("ให้มันเด่นหน่อย" / "ทำเหมือน 4
+// ปัจจัยเลย นะ เพิ่มกรอบให้"), which is Card's `headerTone="brand"` band plus the softer tinted
+// banner underneath it ("เพิ่มกรอบให้มันหน่อย สีให้อ่อน กว่าหัวข้อ และจัด ให้อยู่กึ่งกลาง").
 
 import type { LucideIcon } from 'lucide-react'
 import {
   TriangleAlert,
   Radar,
   Pill,
-  Wine,
-  Users,
+  Repeat,
+  Syringe,
+  Ellipsis,
   Angry,
-  ShieldAlert,
+  Eye,
   MessageCircle,
   BedDouble,
   Footprints,
@@ -32,14 +42,29 @@ export interface RiskWarningProps {
   data: { items: CategoryCount[]; denominator: number; affected: number }
 }
 
-/** Icon per known label (RISK_KEYWORDS / SIGN_KEYWORDS in '@/config/keywords'). A future keyword
- *  not in this map still renders (falls back to HelpCircle) rather than disappearing. */
+/**
+ * Icon per known label — keyed on the EXACT label string in RISK_KEYWORDS / SIGN_KEYWORDS
+ * ('@/config/keywords'), so a renamed factor silently falls back to HelpCircle instead of
+ * disappearing. The 2026-09-12 schema refresh renamed two risk factors and added a fourth; the
+ * pre-refresh spellings are kept below as well, so a fallback fetch of the old 84-column sheet
+ * still draws real icons rather than four question marks.
+ *
+ * Deck slide 14 asks the warning signs in particular to read as friendly illustrations
+ * ("จะเอารูปหน้าคุยคนเดียวเดินไปเดินมา มาใส่ ทำให้ดูน่าอ่านเลยยย") — hence the expressive lucide
+ * set (an eye for หวาดระแวง, a speech bubble for พูดจาคนเดียว, a bed for ไม่หลับไม่นอน,
+ * footprints for เดินไปเดินมา). No image assets: these stay crisp at any size and inherit colour.
+ */
 const ITEM_ICON: Record<string, LucideIcon> = {
+  // ปัจจัยเสี่ยง (current spellings)
   'ขาดยา/ไม่มาตามนัด': Pill,
-  กลับมาเสพซ้ำ: Wine,
-  อื่นๆ: Users,
+  กลับมาใช้สารเสพติดซ้ำ: Repeat,
+  การใช้สารเสพติดร่วมด้วย: Syringe,
+  อื่นๆ: Ellipsis,
+  // ปัจจัยเสี่ยง (pre-refresh spelling, still reachable through the fallback sheet)
+  กลับมาเสพซ้ำ: Repeat,
+  // สัญญาณเตือน
   หงุดหงิดฉุนเฉียว: Angry,
-  เที่ยวหวาดระแวง: ShieldAlert,
+  เที่ยวหวาดระแวง: Eye,
   พูดจาคนเดียว: MessageCircle,
   ไม่หลับไม่นอน: BedDouble,
   เดินไปเดินมา: Footprints,
@@ -48,19 +73,25 @@ const ITEM_ICON: Record<string, LucideIcon> = {
 /** Copy per kind. Kept together so the base of every number is stated in exactly one place. */
 const COPY = {
   risk: {
+    /** Trailing half of the title; the leading count comes from items.length, never a literal. */
+    titleSuffix: 'ปัจจัยหลักของผู้ป่วยที่ก่อความรุนแรง',
     what: 'ปัจจัยเสี่ยง',
-    /** What one row of the aggregate's denominator is. */
-    baseUnit: 'เหตุการณ์ของผู้ป่วยรายเก่า',
-    overlap:
-      '1 เหตุการณ์อาจมีได้หลายปัจจัย ตัวเลขรายหมวดจึงรวมกันเกินจำนวนเหตุการณ์ที่มีปัจจัยเสี่ยงได้',
-    affectedUnit: 'เหตุการณ์ที่มีปัจจัยเสี่ยง',
+    /**
+     * Deck slide 13: this card's base EXCLUDES the ไม่ใช่ผู้ป่วยจิตเวช/ไม่ใช่ผู้ใช้สารเสพติด
+     * group, so the banner's 417 is smaller than the 580 every other Section-1 card shows. Naming
+     * the base on the card is what keeps that from being read as a missing-data bug.
+     */
+    baseQualifier: 'นับเฉพาะผู้ป่วยจิตเวช/ผู้ใช้สารเสพติด (รายเก่า/รายใหม่)',
+    footnote: 'หมายเหตุ: 1 เหตุการณ์สามารถพบปัจจัยเสี่ยงมากกว่า 1 ปัจจัย',
+    emptyText: 'ไม่มีผู้ป่วยจิตเวช/ผู้ใช้สารเสพติดในขอบเขตฟิลเตอร์ที่ใช้',
   },
   sign: {
+    titleSuffix: 'สัญญาณเตือน',
     what: 'สัญญาณเตือน',
-    baseUnit: 'เหตุการณ์ทั้งหมดตามตัวกรอง',
-    overlap:
-      '1 เหตุการณ์อาจมีได้หลายสัญญาณเตือน ตัวเลขรายหมวดจึงรวมกันเกินจำนวนเหตุการณ์ที่มีสัญญาณเตือนได้',
-    affectedUnit: 'เหตุการณ์ที่มีสัญญาณเตือน',
+    /** Deck slide 14: the base IS every filtered event — anyone can show a sign. No qualifier. */
+    baseQualifier: '',
+    footnote: 'หมายเหตุ: 1 เหตุการณ์สามารถพบสัญญาณเตือนมากกว่า 1 สัญญาณ',
+    emptyText: 'ไม่มีเหตุการณ์ในขอบเขตฟิลเตอร์ที่ใช้',
   },
 } as const
 
@@ -80,13 +111,12 @@ function pctBadge(value: number, base: number): string {
 
 interface ItemRowProps {
   item: CategoryCount
-  /** Denominator of the per-category percentage: the events carrying at least one factor/sign. */
+  /** Denominator of the per-item percentage: the card's BASE (deck slide 13), not `affected`. */
   base: number
   /** Thai name of that denominator, used in the accessible label of the badge. */
   baseLabel: string
   tone: 'orange' | 'rose'
   index?: number
-  compact?: boolean
 }
 
 const TONE = {
@@ -104,40 +134,29 @@ const TONE = {
   },
 } as const
 
-function ItemRow({ item, base, baseLabel, tone, index, compact }: ItemRowProps) {
+function ItemRow({ item, base, baseLabel, tone, index }: ItemRowProps) {
   const Icon = ITEM_ICON[item.name] ?? HelpCircle
   const t = TONE[tone]
   const badge = pctBadge(item.value, base)
   const badgeLabel = `${badge} ของ ${fmt(base)} ${baseLabel}`
 
-  if (compact) {
-    return (
-      <div className={`flex flex-col items-center rounded-2xl border ${t.border} bg-white p-3 text-center shadow-sm transition-transform hover:scale-[1.02]`}>
-        <div className={`mb-2 flex h-10 w-10 items-center justify-center rounded-full ${t.iconBg}`}>
-          <Icon className="h-5 w-5" strokeWidth={2} />
-        </div>
-        <div className="mb-2 text-sm font-bold text-slate-700">{item.name}</div>
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-          <span>({fmt(item.value)})</span>
-          <span className={`rounded-full ${t.badge} px-2 py-0.5 text-white`} title={badgeLabel} aria-label={badgeLabel}>
-            {badge}
-          </span>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className={`flex w-full items-center justify-between rounded-2xl border ${t.border} bg-white p-3 shadow-sm transition-transform hover:scale-[1.01]`}>
-      <span className="flex items-center gap-3 text-sm font-bold text-slate-700">
-        <span className={`flex h-10 w-10 items-center justify-center rounded-full ${t.iconBg}`}>
+    <div
+      className={`flex w-full flex-wrap items-center justify-between gap-2 rounded-2xl border ${t.border} bg-white p-3 shadow-sm transition-transform hover:scale-[1.01]`}
+    >
+      <span className="flex min-w-0 items-center gap-3 text-sm font-bold text-slate-700">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${t.iconBg}`}>
           <Icon className="h-5 w-5" strokeWidth={2} />
         </span>
         {index !== undefined ? `${index + 1}. ${item.name}` : item.name}
       </span>
-      <span className="flex items-center gap-2 text-xs font-bold text-slate-600">
-        <span>({fmt(item.value)})</span>
-        <span className={`rounded-full ${t.badge} px-3 py-1 text-white`} title={badgeLabel} aria-label={badgeLabel}>
+      <span className="flex shrink-0 items-center gap-2 text-xs font-bold text-slate-600">
+        <span className="tabular-nums">({fmt(item.value)})</span>
+        <span
+          className={`rounded-full ${t.badge} px-3 py-1 tabular-nums text-white`}
+          title={badgeLabel}
+          aria-label={badgeLabel}
+        >
           {badge}
         </span>
       </span>
@@ -145,34 +164,40 @@ function ItemRow({ item, base, baseLabel, tone, index, compact }: ItemRowProps) 
   )
 }
 
-/** Headline chip pair: the base on the left, "how many of that base are affected" on the right. */
-function HeadlineChips({
+/**
+ * The deck's centred summary banner (slide 13). Deliberately a SOFTER tint than the brand header
+ * band above it (s2-50/s2-100 under the s2-700 band) so it reads as a sub-heading of the card,
+ * not as a second title. text-s2-800 on s2-50 is ~9:1.
+ */
+function SummaryBanner({
   denominator,
   affected,
-  copy,
-  accent,
+  what,
+  qualifier,
+  emptyText,
 }: {
   denominator: number
   affected: number
-  copy: (typeof COPY)[keyof typeof COPY]
-  accent: string
+  what: string
+  qualifier: string
+  emptyText: string
 }) {
   if (denominator <= 0) {
     return (
-      <div className="mb-5 flex flex-col items-center gap-1 text-xs font-bold">
-        <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600">—</span>
-        <span className="font-medium text-slate-600">ไม่มีข้อมูลใน{copy.baseUnit}ตามตัวกรองที่ใช้</span>
+      <div className="mb-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-bold text-slate-600">
+        {emptyText}
       </div>
     )
   }
   return (
-    <div className="mb-4 flex flex-wrap justify-center text-xs font-bold">
-      <span className="rounded-l-full border border-slate-200 bg-white px-3 py-1.5 text-slate-600">
-        ฐาน: {fmt(denominator)} {copy.baseUnit}
-      </span>
-      <span className={`rounded-r-full border border-l-0 px-3 py-1.5 ${accent}`}>
-        · มี{copy.what} {fmt(affected)} จาก {fmt(denominator)} เหตุการณ์ ({pct(affected, denominator)}%)
-      </span>
+    <div className="mb-4 w-full rounded-2xl border border-s2-100 bg-s2-50 px-4 py-3 text-center">
+      <p className="text-base font-bold leading-snug text-s2-800">
+        {`จากเหตุการณ์ทั้งหมด ${fmt(denominator)} เหตุการณ์ มี${what} ${fmt(affected)} เหตุการณ์ (${pct(
+          affected,
+          denominator,
+        )}%)`}
+      </p>
+      {qualifier !== '' && <p className="mt-1 text-xs font-medium text-s2-800/80">{qualifier}</p>}
     </div>
   )
 }
@@ -180,69 +205,46 @@ function HeadlineChips({
 export default function RiskWarning({ kind, data }: RiskWarningProps) {
   const { items, denominator, affected } = data
   const copy = COPY[kind]
-  // Per-category percentages are shares of the affected events, not of the whole base — stated
-  // under the list so the badges can never be read against the wrong denominator.
-  const categoryBaseNote =
-    affected > 0
-      ? `ร้อยละรายหมวด = % ของ ${fmt(affected)} ${copy.affectedUnit} (ไม่ใช่ % ของ ${fmt(denominator)} ${copy.baseUnit})`
-      : `ยังไม่มี${copy.affectedUnit}ในขอบเขตนี้ จึงแสดงร้อยละรายหมวดเป็น —`
-
-  if (kind === 'risk') {
-    return (
-      <Card title="3 ปัจจัยเสี่ยงหลัก" subtitle="ของผู้ป่วยรายเก่าที่ก่อความรุนแรง" icon={TriangleAlert} accent="s1">
-        <div className="flex flex-col items-center">
-          <HeadlineChips
-            denominator={denominator}
-            affected={affected}
-            copy={copy}
-            accent="border-blue-200 bg-blue-100 text-blue-800"
-          />
-          <div className="w-full space-y-3">
-            {items.map((item, i) => (
-              <ItemRow
-                key={item.name}
-                item={item}
-                base={affected}
-                baseLabel={copy.affectedUnit}
-                tone="orange"
-                index={i}
-              />
-            ))}
-          </div>
-          <DenominatorNote className="mt-4 justify-center text-center">{categoryBaseNote}</DenominatorNote>
-          <DenominatorNote className="mt-1 justify-center text-center" hideIcon>
-            หมายเหตุ: {copy.overlap}
-          </DenominatorNote>
-        </div>
-      </Card>
-    )
-  }
-
-  const [first, ...rest] = items
+  const isRisk = kind === 'risk'
+  const tone = isRisk ? 'orange' : 'rose'
+  // Derived from the data, never a hard-coded "3"/"5": the sheet owner adding a sixth sign or a
+  // fifth factor must not leave the title asserting a count the card no longer shows.
+  const title = `${items.length} ${copy.titleSuffix}`
+  const baseLabel = isRisk ? 'เหตุการณ์ของผู้ป่วยจิตเวช/ผู้ใช้สารเสพติด' : 'เหตุการณ์ทั้งหมด'
+  // With no base there is nothing to take a percentage OF: the rows below would each read "(0) —"
+  // under a notice that just said there is no data, and the multi-factor footnote would annotate
+  // rows that are not there. The empty notice is the whole card in that case.
+  const hasBase = denominator > 0
 
   return (
-    <Card title="5 สัญญาณเตือน" subtitle="เฝ้าระวังกลุ่มเสี่ยงในชุมชน" icon={Radar} accent="s1">
-      <div className="flex flex-col items-center">
-        <HeadlineChips
+    <Card title={title} icon={isRisk ? TriangleAlert : Radar} headerTone="brand" accent="s1">
+      <div className="flex flex-1 flex-col">
+        <SummaryBanner
           denominator={denominator}
           affected={affected}
-          copy={copy}
-          accent="border-amber-200 bg-amber-100 text-amber-800"
+          what={copy.what}
+          qualifier={copy.baseQualifier}
+          emptyText={copy.emptyText}
         />
-        <div className="w-full space-y-3">
-          {first && <ItemRow item={first} base={affected} baseLabel={copy.affectedUnit} tone="rose" />}
-          {rest.length > 0 && (
-            <div className="grid w-full grid-cols-2 gap-3">
-              {rest.map((item) => (
-                <ItemRow key={item.name} item={item} base={affected} baseLabel={copy.affectedUnit} tone="rose" compact />
+        {hasBase && (
+          <>
+            <div className="w-full space-y-3">
+              {items.map((item, i) => (
+                <ItemRow
+                  key={item.name}
+                  item={item}
+                  base={denominator}
+                  baseLabel={baseLabel}
+                  tone={tone}
+                  index={isRisk ? i : undefined}
+                />
               ))}
             </div>
-          )}
-        </div>
-        <DenominatorNote className="mt-4 justify-center text-center">{categoryBaseNote}</DenominatorNote>
-        <DenominatorNote className="mt-1 justify-center text-center" hideIcon>
-          หมายเหตุ: {copy.overlap}
-        </DenominatorNote>
+            <DenominatorNote className="mt-4 justify-center text-center" hideIcon>
+              {copy.footnote}
+            </DenominatorNote>
+          </>
+        )}
       </div>
     </Card>
   )

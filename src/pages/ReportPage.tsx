@@ -198,7 +198,7 @@ export default function ReportPage() {
 
   return (
     <div className="px-4 sm:px-6 py-6 space-y-8 max-w-5xl mx-auto w-full">
-      <Card title="เกณฑ์การ Alert ข่าว (SOCIAL LISTENING)" icon={AlertTriangle} accent="s1">
+      <Card title="เกณฑ์การ Alert ข่าว (SOCIAL LISTENING)" icon={AlertTriangle} accent="s1" headerTone="brand">
         <AlertCriteriaTable />
 
         {/* The jpg is now the SOURCE document, not the way the criteria are read. */}
@@ -248,7 +248,7 @@ export default function ReportPage() {
         </div>
       </Card>
 
-      <Card title="แบบฟอร์มการรายงาน (DCIR)" icon={FileText} accent="s2">
+      <Card title="แบบฟอร์มการรายงาน (DCIR)" icon={FileText} accent="s2" headerTone="brand">
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {FORMS.map((def) => (
             <FormCard key={def.href} def={def} />

@@ -6,14 +6,20 @@
 // '#/dashboard' / '#/zone' values and re-clicking the current tab does not wipe the query.
 
 import { useCallback, useEffect, useState } from 'react'
+import { NAV_TABS } from '@/config'
 
-const VALID_HASHES = ['#/dashboard', '#/zone', '#/report', '#/mcatt', '#/contact'] as const
-const DEFAULT_HASH: string = '#/dashboard'
+/**
+ * Derived from NAV_TABS rather than re-listed here: with the sidebar deleted (deck slide 11) the
+ * header's nav row is the only navigation UI, so a route that is not a tab is not reachable — the
+ * two lists can no longer drift apart.
+ */
+const VALID_HASHES: readonly string[] = NAV_TABS.map((t) => t.hash)
+const DEFAULT_HASH: string = NAV_TABS[0]?.hash ?? '#/dashboard'
 
 /** '#/dashboard?zone=8' -> '#/dashboard'. Anything unknown falls back to the dashboard. */
 function hashPath(raw: string): string {
   const path = raw.split('?')[0]
-  return (VALID_HASHES as readonly string[]).includes(path) ? path : DEFAULT_HASH
+  return VALID_HASHES.includes(path) ? path : DEFAULT_HASH
 }
 
 function readHash(): string {

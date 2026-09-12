@@ -21,45 +21,66 @@ function CardShell({ children }: { children: ReactNode }) {
 
 export default function LoadingSkeleton({ label = 'กำลังโหลดข้อมูล' }: LoadingSkeletonProps) {
   return (
-    <div role="status" aria-busy="true" className="px-4 sm:px-6 py-6 space-y-6">
+    <div role="status" aria-busy="true" className="flex min-h-[calc(100vh-128px)]">
       <span className="sr-only">{label}</span>
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap gap-3">
-        <Block className="h-11 w-40" />
-        <Block className="h-11 w-40" />
-        <Block className="h-11 w-40" />
-        <Block className="h-11 w-28" />
+      {/* Filter sidebar skeleton */}
+      <div className="hidden lg:block w-80 shrink-0 border-r border-slate-200 bg-white p-5 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <Block className="h-6 w-32" />
+          <Block className="h-6 w-12" />
+        </div>
+        <Block className="h-10 w-full" />
+        <Block className="h-10 w-full" />
+        <Block className="h-10 w-full" />
+        <Block className="h-10 w-full" />
+        <Block className="h-10 w-full" />
       </div>
 
-      {/* KPI row */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
-          <CardShell key={i}>
-            <Block className="h-4 w-24" />
-            <Block className="h-10 w-20" />
-            <Block className="h-3 w-32" />
-          </CardShell>
-        ))}
-      </div>
+      {/* Main content skeleton */}
+      <div className="flex-1 min-w-0 p-6 space-y-6">
+        {/* Section jump pills */}
+        <div className="flex flex-wrap gap-2">
+          <Block className="h-10 w-32 rounded-full" />
+          <Block className="h-10 w-44 rounded-full" />
+          <Block className="h-10 w-36 rounded-full" />
+        </div>
 
-      {/* Chart row */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {[0, 1].map((i) => (
-          <CardShell key={i}>
-            <Block className="h-5 w-48" />
-            <Block className="h-56 w-full" />
-          </CardShell>
-        ))}
-      </div>
+        {/* KPI row */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <CardShell key={i}>
+              <Block className="h-4 w-24" />
+              <Block className="h-10 w-20" />
+              <Block className="h-3 w-32" />
+            </CardShell>
+          ))}
+        </div>
 
-      {/* Table */}
-      <CardShell>
-        <Block className="h-5 w-40" />
-        {[0, 1, 2, 3, 4].map((i) => (
-          <Block key={i} className="h-8 w-full" />
-        ))}
-      </CardShell>
+        {/* Chart row */}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {[0, 1].map((i) => (
+            <CardShell key={i}>
+              <Block className="h-5 w-48" />
+              <Block className="h-56 w-full" />
+            </CardShell>
+          ))}
+        </div>
+
+        {/* Full-width chart / map */}
+        <CardShell>
+          <Block className="h-5 w-56" />
+          <Block className="h-72 w-full" />
+        </CardShell>
+
+        {/* Table */}
+        <CardShell>
+          <Block className="h-5 w-40" />
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Block key={i} className="h-8 w-full" />
+          ))}
+        </CardShell>
+      </div>
     </div>
   )
 }

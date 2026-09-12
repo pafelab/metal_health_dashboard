@@ -11,7 +11,7 @@ import { useId, useMemo, useState } from 'react'
 import { Building2, Check, Copy, MessageCircle, Phone, Search, UserRound, Users, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { McattPerson } from '@/types'
-import { ZONE_PROVINCES } from '@/config'
+import { ZONE_NUMBERS, ZONE_PROVINCES, formatZoneLabel } from '@/config'
 import { thaiPhoneDigits } from '@/data/mcatt'
 import { useSheetData } from '@/hooks/useSheetData'
 import Card from '@/components/layout/Card'
@@ -29,8 +29,6 @@ const ROLE_LEGEND: { term: string; meaning: string }[] = [
   { term: 'SMI-V', meaning: 'ผู้ป่วยจิตเวชที่มีความเสี่ยงสูงต่อการก่อความรุนแรง' },
   { term: 'ไม่ระบุบทบาท', meaning: 'แหล่งข้อมูลไม่ได้ระบุบทบาทของผู้ประสานงานคนนี้' },
 ]
-
-const ZONE_NUMBERS = Array.from({ length: 13 }, (_, i) => i + 1)
 
 const NOT_SPECIFIED = 'ไม่ระบุ'
 
@@ -304,20 +302,23 @@ export default function McattPage() {
 
       {/* Zone jump list */}
       <nav aria-label="ข้ามไปยังเขตสุขภาพ" className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-slate-600">ไปยังเขต:</span>
+        <span className="text-sm font-semibold text-slate-600">ไปยังเขตสุขภาพ:</span>
         {groups.map((g) => (
           <button
             key={g.zone}
             type="button"
             onClick={() => jumpToZone(g.zone)}
-            aria-label={`ไปยังเขตสุขภาพที่ ${g.zone} (${g.visible.length} คน)`}
+            aria-label={`ไปยัง${formatZoneLabel(g.zone)} (${g.visible.length} คน)`}
             className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-s1-400 ${
               g.visible.length === 0
                 ? 'border-slate-200 bg-white text-slate-500'
                 : 'border-slate-200 bg-white text-slate-700 hover:border-s1-300 hover:bg-s1-50 hover:text-s1-700'
             }`}
           >
-            เขต {g.zone}
+            {/* Deck slide 10: always the full 'เขตสุขภาพที่ N'. The clipped 'เขต N' also made the
+                visible label disagree with this button's own aria-label and with the card title
+                it jumps to. */}
+            {formatZoneLabel(g.zone)}
             <span className="ml-1 text-xs font-medium text-slate-500">({g.visible.length})</span>
           </button>
         ))}
@@ -367,12 +368,12 @@ export default function McattPage() {
               key={g.zone}
               id={`zone-${g.zone}`}
               tabIndex={-1}
-              aria-label={`เขตสุขภาพที่ ${g.zone}`}
+              aria-label={formatZoneLabel(g.zone)}
               style={{ scrollMarginTop: `var(--sticky-offset, ${STICKY_OFFSET_FALLBACK})` }}
               className="rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-s1-400"
             >
               <Card
-                title={`เขตสุขภาพที่ ${g.zone}`}
+                title={formatZoneLabel(g.zone)}
                 subtitle={g.provinces.join(', ')}
                 icon={Users}
                 accent="s1"

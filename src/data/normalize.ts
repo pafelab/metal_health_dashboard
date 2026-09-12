@@ -157,13 +157,77 @@ export function normProvince(raw: string): string {
   if (t === '' || t === '-') return ''
   t = t.replace(/^จังหวัด/, '').replace(/^จ\.\s*/, '')
   t = t.replace(/\s+/g, ' ').trim()
-  // Collapse a doubled Thai combining vowel/tone mark (data-entry typo class, e.g. observed
-  // 'ขอนแก่่น' with a repeated mai-ek ่ ่ for แก่น) BEFORE the alias lookup, so this typo shape
-  // self-heals even for names not explicitly listed in PROVINCE_ALIASES. Same combining-mark
-  // range already used by stripListNumbering(). A substitution typo like 'นตรพนม' (ต for ค) is
-  // not a doubled-mark case and still needs its own PROVINCE_ALIASES entry.
-  t = t.replace(/([ัิ-ฺ็-๎])\1+/g, '$1')
+  // Collapse a doubled Thai combining vowel/tone mark BEFORE the alias lookup, so this typo shape
+  // self-heals even for names not explicitly listed in PROVINCE_ALIASES. A substitution typo like
+  // 'นตรพนม' (ต for ค) is not a doubled-mark case and still needs its own PROVINCE_ALIASES entry.
+  t = collapseDoubledMarks(t)
   return PROVINCE_ALIASES[t] ?? t
+}
+
+/**
+ * Collapse a run of the same Thai combining vowel/tone mark down to one (data-entry typo class:
+ * observed 'ขอนแก่่น' with a repeated mai-ek, 'หญิิง' with a repeated สระอิ, 'ต่ำ่กว่า 18 ปี' with
+ * a repeated mai-ek, 'ไม่่มี'). Same combining-mark range stripListNumbering() uses. Extracted
+ * from normProvince() so every column with this typo shape can reuse the one implementation.
+ */
+export function collapseDoubledMarks(s: string): string {
+  // Adjacent repeat of the same mark: 'ขอนแก่่น', 'หญิิง', 'ไม่่มี'.
+  let t = s.replace(/([ัิ-ฺ็-๎])\1+/g, '$1')
+  // Same typo SPLIT BY สระอำ: 'ต่ำ่กว่า 18 ปี' is ต + ่ + ำ + ่ , so the two mai-ek are not
+  // adjacent and the rule above cannot see them. Only a mark that already appears BEFORE the ำ is
+  // removed after it, so a genuinely mis-ordered (never observed) 'ตำ่' keeps its tone mark
+  // instead of losing it.
+  t = t.replace(/([่-๋])ำ\1/g, '$1ำ')
+  return t
+}
+
+/**
+ * เพศ cell → 'ชาย' / 'หญิง' / raw. The refreshed sheet has exactly 1 row spelled 'หญิิง'
+ * (doubled สระอิ), which would otherwise land in genderSplit()'s `other` bucket.
+ */
+export function normGender(raw: string): string {
+  const t = collapseDoubledMarks(collapseWs(raw))
+  if (t === '' || t === '-') return ''
+  return t
+}
+
+/**
+ * ช่วงอายุวัย cell → 'ต่ำกว่า 18 ปี' / '≥ 18 ปี'. Two fixes, both measured on the 2026-09-12
+ * fixture: 1 row spells it 'ต่ำ่กว่า 18 ปี' (doubled mai-ek), and the 26 under-18 rows are stored
+ * as 'ต่ำกว่า 18' WITHOUT the trailing 'ปี'. The review deck (slide 20) prints 'ปี' on both
+ * labels, so the DATA value is normalized here — otherwise the fixed display order in
+ * CATEGORY_ORDERS.suicideAgeGroup would never match the under-18 rows.
+ */
+export function normSuicideAgeGroup(raw: string): string {
+  const t = collapseDoubledMarks(collapseWs(raw))
+  if (t === '' || t === '-') return ''
+  if (t === 'ต่ำกว่า 18') return 'ต่ำกว่า 18 ปี'
+  return t
+}
+
+/**
+ * ประเภทผู้ป่วย (col 14) cell → one of CATEGORY_ORDERS.patientStatus5.
+ *
+ * Two shapes need repair, both measured on the 2026-09-12 fixture:
+ * 1. 163 rows carry LITERAL double-quote characters and an inner space —
+ *    `"ไม่ใช่ผู้ป่วยจิตเวช/ ไม่ใช่ผู้ใช้สารเสพติด"` — because the value contains a comma-free but
+ *    quote-wrapped string in the source sheet. Quotes are stripped and the space around the '/'
+ *    removed, giving `ไม่ใช่ผู้ป่วยจิตเวช/ไม่ใช่ผู้ใช้สารเสพติด`.
+ * 2. Exactly ONE row still uses the pre-restructure vocabulary `ผู้ป่วยรายใหม่`. It is aliased to
+ *    `ผู้ป่วยจิตเวชรายใหม่` — a JUDGEMENT CALL on a single legacy row, not something the data
+ *    states. Its counterpart `ผู้ป่วยรายเก่า` is deliberately NOT aliased: it does not occur in
+ *    the current sheet, and on a GID_WIDE_FALLBACK fetch (old 84-column schema) it is the majority
+ *    value, where silently retagging hundreds of rows as "จิตเวชรายเก่า" would be a fabrication.
+ *    Such rows stay verbatim and countBy() appends them as an extra category (SPEC 4.5).
+ */
+export function normPatientStatus(raw: string): string {
+  let t = collapseWs(raw)
+  if (t === '' || t === '-') return ''
+  t = t.replace(/^"+/, '').replace(/"+$/, '').trim()
+  t = t.replace(/\s*\/\s*/g, '/')
+  t = collapseDoubledMarks(t)
+  if (t === 'ผู้ป่วยรายใหม่') return 'ผู้ป่วยจิตเวชรายใหม่'
+  return t
 }
 
 /** Collapse runs of whitespace, for robust category-label comparison (BUILD_NOTES: diagnosis

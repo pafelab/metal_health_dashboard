@@ -124,9 +124,14 @@ export default function SearchableSelect({
     setIsOpen(false)
   }
 
+  // Filters auto-apply on change now (review deck slide 11), so clearing commits immediately.
+  // Close the list like handleSelect does: otherwise the page refreshes behind a popover that is
+  // still open and still covering it. stopPropagation is still needed — this control sits inside
+  // the trigger button, whose onClick would otherwise toggle the list straight back open.
   function handleClear(e: React.MouseEvent) {
     e.stopPropagation()
     onChange(String(defaultValue))
+    setIsOpen(false)
   }
 
   function handleTriggerKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
@@ -192,6 +197,7 @@ export default function SearchableSelect({
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.stopPropagation()
                   onChange(String(defaultValue))
+                  setIsOpen(false)
                 }
               }}
               className="grid h-[44px] w-[44px] -my-1.5 place-items-center rounded-full hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"

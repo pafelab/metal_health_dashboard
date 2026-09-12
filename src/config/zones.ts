@@ -24,6 +24,21 @@ export const ZONE_PROVINCES: Record<number, string[]> = {
   13: ['กรุงเทพมหานคร'],
 }
 
+/**
+ * The 13 health-zone numbers, in display order. Shared so the filter bar, the MCATT directory and
+ * anything else that enumerates zones cannot drift apart (both used to keep a private copy).
+ */
+export const ZONE_NUMBERS: number[] = Array.from({ length: 13 }, (_, i) => i + 1)
+
+/**
+ * Display label for a zone number — always the full 'เขตสุขภาพที่ N', never the clipped 'เขต N'
+ * (review deck slide 10). Display only: zone PARSING (src/data/normalize.ts parseZone and the
+ * '?zone=' URL param) is digit-based and is unaffected by this string.
+ */
+export function formatZoneLabel(zone: number): string {
+  return `เขตสุขภาพที่ ${zone}`
+}
+
 /** All 77 provinces, in zone order (1..13). Used when zone filter = 'all'. */
 export const ALL_PROVINCES: string[] = Object.keys(ZONE_PROVINCES)
   .map(Number)

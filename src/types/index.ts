@@ -64,10 +64,15 @@ export interface SLEvent {
   age: number | null
   ageBand: string
 
-  suicideAgeGroup: string // col 11 ช่วงอายุ
-  diagnosis: string // col 12
+  suicideAgeGroup: string // col 11 ช่วงอายุ — normalized to 'ต่ำกว่า 18 ปี' / '≥ 18 ปี'
+  diagnosis: string // col 12 การประเมินกลุ่มผู้ป่วย — raw, 7 groups (see CATEGORY_ORDERS.patientGroup7)
   patientGroup: string // col 13 (5 groups)
-  patientClass: string // col 14 เก่า/ใหม่
+  /** col 14 RAW. Kept byte-compatible with the pre-2026-09-12 schema (ผู้ป่วยรายเก่า/ใหม่) for the
+   *  widgets and scripts that still read it; use `patientStatus` for the new 5-way status. */
+  patientClass: string
+  /** col 14 NORMALIZED — the 5-way ประเภทผู้ป่วย status (CATEGORY_ORDERS.patientStatus5):
+   *  quotes/inner spaces stripped and the single legacy row aliased. SPEC refresh 2026-09-12. */
+  patientStatus: string
   treatmentHistory: string // col 15
   suicide: string // col 16
   suicideMethod: string
@@ -78,8 +83,23 @@ export interface SLEvent {
   deaths: number
 
   assistance: string // col 26
-  riskCells: string[] // cols 27-30
-  signCells: string[] // cols 31-36
+
+  /** Raw text of the 4 risk-factor columns, one per RISK_KEYWORDS entry, in that order.
+   *  Current schema: cols 74-77 (single-value flag columns). Old schema: cols 27-30 free text. */
+  riskCells: string[]
+  /** Raw text of the 5 warning-sign columns (one per SIGN_KEYWORDS entry, in that order) plus the
+   *  "no psychiatric symptom" column last — 6 cells. Current schema: cols 78-82 + 83. */
+  signCells: string[]
+
+  /** One per RISK_KEYWORDS entry, in that order — cols 74-77 read as FLAGS (cell non-empty). */
+  riskFlags: boolean[]
+  /** One per SIGN_KEYWORDS entry, in that order — cols 78-82 read as FLAGS (cell non-empty).
+   *  NOTE: SIGN_KEYWORDS order is NOT column order; the resolver maps each factor to its own
+   *  column by header name, so signFlags[i] always belongs to SIGN_KEYWORDS[i]. */
+  signFlags: boolean[]
+  /** col 84 `5สัญญาณเตือน` — the sheet's OWN มี/ไม่มี answer, kept as a cross-check against
+   *  signFlags (they disagree on a handful of rows). '' when the column is absent. */
+  fiveSignsAnswer: string
 }
 
 /** One wide-tab Section 2 (ภัยอื่นๆ) row. SPEC 3.3. */
@@ -100,6 +120,15 @@ export interface HazardEvent {
   reporting: string // col 40
 
   hazards: string[] // resolved hazard-type labels, >=1 (fallback 'ภัยอื่นๆ (ไม่ระบุ)')
+
+  /** เจ้าหน้าที่ที่ได้รับผลกระทบบาดเจ็บ — col 47. '-' / blank parse as 0. */
+  officerInjured: number
+  /** เจ้าหน้าที่ได้รับผลกระทบเสียชีวิต — col 48. */
+  officerDead: number
+  /** ประชาชนที่ได้รับผลกระทบบาดเจ็บ — col 50. */
+  publicInjured: number
+  /** ประชาชนที่ได้รับผลกระทบเสียชีวิต — col 51. */
+  publicDead: number
 }
 
 /** One MCATT / SMI-V directory person. SPEC 3.4. */

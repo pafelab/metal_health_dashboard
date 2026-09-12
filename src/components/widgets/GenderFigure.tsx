@@ -1,15 +1,22 @@
 // SPEC 6.1 #10 and #16 — human-figure infographic. Mirrors docs/reference/site2's
 // renderCustomGender()/renderCustomAge() (person icon + a fluid-fill capsule sized by percent)
-// rebuilt with lucide-react icons and our design tokens. Widget 16 also supplies `ageSplit`
-// (<18 / >=18) which renders as a second figure row inside the same card.
+// rebuilt with lucide-react icons and our design tokens. The suicide module also supplies
+// `ageSplit` (ต่ำกว่า 18 ปี / ≥ 18 ปี) which renders as a second figure row in the same block.
 //
-// UX-11: the two rows have DIFFERENT bases (gender = every row in scope, age = only the rows with
-// a usable age), so each column prints the base it was divided by instead of a bare percent.
+// Deck slide 18 ("ตัด รวม 440 ออกให้หมด") removes the per-column "ของ N ราย" caption and the
+// "รวม N ราย" footnote that used to sit under each row: on a page where every card shares one
+// filter scope, repeating the same total under every figure was noise. The base has NOT been
+// dropped, only moved — it still reads out in each column's aria-label ("… คิดเป็น X% ของ N ราย"),
+// which is where the UX-11 requirement (never show a bare percent whose base is unstated) is now
+// satisfied for screen-reader users. The gender row's base is every row in scope; the age row's
+// base is only the rows carrying a usable age, so the two aria-labels name different numbers.
+//
+// `bare` renders the figures WITHOUT the Card shell, for use as one sub-block inside a bigger
+// framed container (the deck slide-20 "สถานการณ์การฆ่าตัวตาย" module).
 
 import type { LucideIcon } from 'lucide-react'
 import { User, UserRound, Users, Baby, PersonStanding } from 'lucide-react'
-import Card from '@/components/layout/Card'
-import DenominatorNote from '@/components/widgets/DenominatorNote'
+import Card, { type CardHeaderTone } from '@/components/layout/Card'
 import type { GenderSplit } from '@/types'
 
 export interface GenderFigureProps {
@@ -17,6 +24,10 @@ export interface GenderFigureProps {
   data: GenderSplit
   icon?: LucideIcon
   ageSplit?: { label: string; value: number }[]
+  /** Deck slide 9 — let a caller ask for the filled title band (see Card.headerTone). */
+  headerTone?: CardHeaderTone
+  /** Render only the figures, with no Card/title around them (sub-block of a larger card). */
+  bare?: boolean
 }
 
 function pct(n: number, denom: number): number {
@@ -48,7 +59,7 @@ function FigureColumn({
   Icon: LucideIcon
   label: string
   value: number
-  /** Denominator this column's percent is taken over — printed under it (UX-11). */
+  /** Denominator this column's percent is taken over — named in the aria-label (deck slide 18). */
   total: number
   color: string
   bg: string
@@ -77,23 +88,22 @@ function FigureColumn({
           </div>
         </div>
       </div>
-      <span className={`font-bold text-slate-800 ${large ? 'mt-4 text-base sm:text-lg' : 'mt-3 text-sm'}`}>
+      {/* Thai labels here can be as long as 'ต่ำกว่า 18 ปี' — allow them to wrap, never clip. */}
+      <span className={`text-center font-bold text-slate-800 ${large ? 'mt-4 text-base sm:text-lg' : 'mt-3 text-sm'}`}>
         {label}
       </span>
+      {/* Count AND percent, both visible (deck slides 18/20); the base lives in the aria-label. */}
       <span
-        className={`font-bold text-slate-600 ${large ? 'text-sm' : 'text-xs'}`}
+        className={`font-bold tabular-nums text-slate-600 ${large ? 'text-sm' : 'text-xs'}`}
         aria-label={`${label} ${fmt(value)} ราย คิดเป็น ${percentText} ของ ${fmt(total)} ราย`}
       >
-        {percentText}
-      </span>
-      <span className={`font-medium text-slate-600 ${large ? 'text-xs' : 'text-[11px]'}`} aria-hidden="true">
-        ของ {fmt(total)} ราย
+        {fmt(value)} ราย · {percentText}
       </span>
     </div>
   )
 }
 
-export default function GenderFigure({ title, data, icon, ageSplit }: GenderFigureProps) {
+export default function GenderFigure({ title, data, icon, ageSplit, headerTone, bare }: GenderFigureProps) {
   const genderFigures: FigureSpec[] = [
     { key: 'male', Icon: User, label: 'ชาย', value: data.male, color: '#2563EB', bg: '#BFDBFE' },
     { key: 'female', Icon: UserRound, label: 'หญิง', value: data.female, color: '#EC4899', bg: '#FBCFE8' },
@@ -102,7 +112,8 @@ export default function GenderFigure({ title, data, icon, ageSplit }: GenderFigu
     genderFigures.push({ key: 'other', Icon: Users, label: 'อื่นๆ', value: data.other, color: '#64748B', bg: '#E2E8F0' })
   }
 
-  const isLarge = !ageSplit || ageSplit.length === 0
+  const hasAgeSplit = !!ageSplit && ageSplit.length > 0
+  const isLarge = !hasAgeSplit && !bare
 
   const ageIcons: LucideIcon[] = [Baby, PersonStanding]
   const ageColors: { color: string; bg: string }[] = [
@@ -111,12 +122,12 @@ export default function GenderFigure({ title, data, icon, ageSplit }: GenderFigu
   ]
   const ageTotal = ageSplit ? ageSplit.reduce((sum, a) => sum + a.value, 0) : 0
 
-  return (
-    <Card title={title} icon={icon} accent="s1" bodyClassName="justify-center">
+  const body = (
+    <>
       <div
-        className={`my-auto flex flex-wrap items-center justify-center ${
+        className={`flex flex-wrap items-center justify-center ${
           isLarge ? 'gap-12 py-6 sm:gap-20' : 'gap-8 py-4 sm:gap-14'
-        }`}
+        } ${bare ? '' : 'my-auto'}`}
       >
         {genderFigures.map((f) => (
           <FigureColumn
@@ -131,13 +142,12 @@ export default function GenderFigure({ title, data, icon, ageSplit }: GenderFigu
           />
         ))}
       </div>
-      <DenominatorNote className="mt-3 justify-center text-center">ร้อยละของเพศคิดจากทุกเหตุการณ์ในขอบเขตตัวกรอง {fmt(data.total)} ราย (รวมผู้ไม่ระบุเพศไว้ในกลุ่ม “อื่นๆ”)</DenominatorNote>
 
-      {ageSplit && ageSplit.length > 0 && (
+      {hasAgeSplit && (
         <>
           <div className="my-5 border-t border-slate-100" />
           <div className="flex flex-wrap justify-center gap-8 py-2 sm:gap-14">
-            {ageSplit.map((a, i) => (
+            {ageSplit!.map((a, i) => (
               <FigureColumn
                 key={a.label}
                 Icon={ageIcons[i % ageIcons.length]}
@@ -149,9 +159,16 @@ export default function GenderFigure({ title, data, icon, ageSplit }: GenderFigu
               />
             ))}
           </div>
-          <DenominatorNote className="mt-3 justify-center text-center">ร้อยละของช่วงอายุคิดจากผู้ที่ระบุช่วงอายุ {fmt(ageTotal)} ราย</DenominatorNote>
         </>
       )}
+    </>
+  )
+
+  if (bare) return <div className="flex w-full flex-col">{body}</div>
+
+  return (
+    <Card title={title} icon={icon} accent="s1" headerTone={headerTone} bodyClassName="justify-center">
+      {body}
     </Card>
   )
 }

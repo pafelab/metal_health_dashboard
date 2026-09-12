@@ -1,5 +1,5 @@
 // SPEC 6.3 — ตารางเหตุการณ์ (widget 19 Section 1 / widget 5 Section 2).
-// Section 1 columns: ลำดับ, เดือน/ปี, เขต, จังหวัด, หัวข้อข่าว, ลิงก์, ระดับ, การส่งรายงาน.
+// Section 1 columns: ลำดับ, เดือน/ปี, เขตสุขภาพ, จังหวัด, หัวข้อข่าว, ลิงก์, ระดับ, การส่งรายงาน.
 // Section 2 additionally shows ประเภทภัย as pills and (PDF p.11) must NOT show สถานที่,
 // การดำเนินการ, ผู้ปฏิบัติงาน or ช่องทาง alert — those fields don't exist on HazardEvent at all,
 // so nothing further to suppress. 20 rows/page. Links open in a new tab (rel="noopener noreferrer").
@@ -26,9 +26,9 @@ import {
   Table2,
   X,
 } from 'lucide-react'
-import Card from '@/components/layout/Card'
+import Card, { type CardHeaderTone } from '@/components/layout/Card'
 import type { HazardEvent, Severity, SLEvent } from '@/types'
-import { SEVERITY_META } from '@/config'
+import { SEVERITY_META, formatZoneLabel } from '@/config'
 import { isValidHttpUrl } from '@/data/normalize'
 import { isOutOfPeriod, type CoverageWindow } from '@/data'
 
@@ -46,6 +46,9 @@ export interface EventsTableProps {
   /** Show ONLY those flagged rows — wired from the section's review banner. */
   outOfPeriodOnly?: boolean
   onToggleOutOfPeriodOnly?: (next: boolean) => void
+  /** Deck slide 9 — forwarded straight to Card so a section can frame this table with a filled
+   *  title band. Optional and defaulted by Card, so existing call sites are untouched. */
+  headerTone?: CardHeaderTone
 }
 
 interface Row {
@@ -161,6 +164,7 @@ export default function EventsTable({
   coverage = null,
   outOfPeriodOnly = false,
   onToggleOutOfPeriodOnly,
+  headerTone,
 }: EventsTableProps) {
   const rows = useMemo(() => toRows(section, sl ?? [], hz ?? []), [section, sl, hz])
   const [search, setSearch] = useState('')
@@ -225,9 +229,15 @@ export default function EventsTable({
         subtitle={`แสดง ${matched} จาก ${available.length} เหตุการณ์`}
         icon={Table2}
         accent={accent}
+        headerTone={headerTone}
         right={
           <div className="w-full sm:w-auto">
-            <label htmlFor={searchId} className="block text-xs font-bold text-slate-600">
+            <label
+              htmlFor={searchId}
+              className={`block text-xs font-bold ${
+                headerTone && headerTone !== 'plain' ? 'text-white' : 'text-slate-600'
+              }`}
+            >
               ค้นหาในตารางนี้
             </label>
             <div className="mt-1 flex items-center gap-2">
@@ -251,14 +261,23 @@ export default function EventsTable({
                 <button
                   type="button"
                   onClick={() => setSearch('')}
-                  className="whitespace-nowrap rounded-full border border-slate-300 px-3 py-2 text-xs font-bold text-slate-600 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+                  className={`whitespace-nowrap rounded-full border px-3 py-2 text-xs font-bold outline-none transition-colors ${
+                    headerTone && headerTone !== 'plain'
+                      ? 'border-white/40 bg-white/20 text-white hover:bg-white/30 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-s1-700'
+                      : 'border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2'
+                  }`}
                 >
                   ล้างคำค้น
                 </button>
               )}
             </div>
-            <p id={hintId} className="mt-1 max-w-[16rem] text-xs text-slate-500">
-              ค้นหาเฉพาะหัวข้อข่าวและจังหวัดในตารางนี้ ไม่กระทบตัวกรองด้านบน
+            <p
+              id={hintId}
+              className={`mt-1 max-w-[16rem] text-xs ${
+                headerTone && headerTone !== 'plain' ? 'text-white/80' : 'text-slate-500'
+              }`}
+            >
+              ค้นหาเฉพาะหัวข้อข่าวและจังหวัดในตารางนี้ ไม่กระทบฟิลเตอร์ด้านบน
             </p>
             {flaggedCount > 0 && onToggleOutOfPeriodOnly && (
               <button
@@ -289,7 +308,7 @@ export default function EventsTable({
                 <button
                   type="button"
                   onClick={onClearSeverityFilter}
-                  aria-label="ยกเลิกตัวกรองระดับสี"
+                  aria-label="ยกเลิกฟิลเตอร์ระดับสี"
                   className="flex h-7 w-7 items-center justify-center rounded-full text-slate-600 outline-none hover:bg-white hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-500"
                 >
                   <X size={14} aria-hidden="true" />
@@ -308,7 +327,7 @@ export default function EventsTable({
                 <button
                   type="button"
                   onClick={() => onToggleOutOfPeriodOnly(false)}
-                  aria-label="ยกเลิกตัวกรองรายการนอกช่วงข้อมูล"
+                  aria-label="ยกเลิกฟิลเตอร์รายการนอกช่วงข้อมูล"
                   className="flex h-7 w-7 items-center justify-center rounded-full text-amber-900 outline-none hover:bg-white focus-visible:ring-2 focus-visible:ring-amber-700"
                 >
                   <X size={14} aria-hidden="true" />
@@ -332,7 +351,12 @@ export default function EventsTable({
           role="region"
           aria-label="ตารางเหตุการณ์ — เลื่อนดูแนวนอนได้"
         >
-          <table className="w-full min-w-[860px] text-tableText">
+          {/* Deck slide: the zone column spells out 'เขตสุขภาพที่ N' rather than the abbreviated
+              'เขต N'. That cell is ~110px at 16px whitespace-nowrap against ~50px before, so the
+              table's minimum width goes up by the same ~60px — otherwise the extra width is taken
+              out of the หัวข้อข่าว column instead. Column COUNT is unchanged, so `colCount`
+              (and the empty-state colSpan it feeds) stays 8/9. */}
+          <table className="w-full min-w-[920px] text-tableText">
             <thead>
               <tr className="border-b border-slate-100 text-left text-slate-600">
                 <th scope="col" className="py-2 pr-3 font-medium">
@@ -340,7 +364,7 @@ export default function EventsTable({
                 </th>
                 <SortableHeader label="เดือน/ปี" column="date" sort={sort} onSort={onSort} />
                 <th scope="col" className="py-2 pr-3 font-medium">
-                  เขต
+                  เขตสุขภาพ
                 </th>
                 <th scope="col" className="py-2 pr-3 font-medium">
                   จังหวัด
@@ -402,7 +426,9 @@ export default function EventsTable({
                           </span>
                         )}
                       </td>
-                      <td className="py-3 pr-3 whitespace-nowrap">{r.zone !== null ? `เขต ${r.zone}` : '-'}</td>
+                      <td className="py-3 pr-3 whitespace-nowrap">
+                        {r.zone !== null ? formatZoneLabel(r.zone) : '-'}
+                      </td>
                       <td className="py-3 pr-3 whitespace-nowrap">{r.province || '-'}</td>
                       {section === 2 && (
                         <td className="py-3 pr-3">
