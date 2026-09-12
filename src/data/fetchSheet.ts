@@ -22,6 +22,10 @@ export function fetchCsv(gid: number): Promise<string[][]> {
  * (byte-identical CSV, SPEC 3.3) if the primary gid fails.
  */
 export async function fetchAllData(): Promise<{ sheet2: string[][]; wide: string[][] }> {
+  if (GID_SHEET2 === GID_WIDE) {
+    const data = await fetchCsv(GID_WIDE).catch(() => fetchCsv(GID_WIDE_FALLBACK))
+    return { sheet2: data, wide: data }
+  }
   const [sheet2, wide] = await Promise.all([
     fetchCsv(GID_SHEET2),
     fetchCsv(GID_WIDE).catch(() => fetchCsv(GID_WIDE_FALLBACK)),

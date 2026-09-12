@@ -3,8 +3,8 @@
 
 export const SHEET_ID = '1BZahLYr5A1t4SIcLmg6fiHA74-3PPBWU7IWp_lMyy_U'
 
-/** ชีต2 — Section 1 (Social Listening) source tab. SPEC 3.2. */
-export const GID_SHEET2 = 1683387958
+/** สำเนาของ ชีต2 — Section 1 (Social Listening) source tab. */
+export const GID_SHEET2 = 842224166
 
 /** Wide tab — Section 2 (ภัยอื่นๆ) + MCATT directory source, used by site 2. SPEC 3.3. */
 export const GID_WIDE = 842224166

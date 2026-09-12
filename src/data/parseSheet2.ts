@@ -139,6 +139,12 @@ export function parseSheet2(rows: string[][]): SLEvent[] {
     const row = rows[i]
     if (!row || row.every((c) => (c ?? '').trim() === '')) continue
 
+    const headline = cell(row, idx.headline)
+    const provinceRaw = cell(row, idx.province)
+    // Row must contain Social Listening data (matches Site 2 isHumanDataPresent logic).
+    // This safely skips Section 2 (ภัยอื่นๆ) and MCATT rows when parsing the unified wide sheet.
+    if (!provinceRaw && !headline) continue
+
     const month = parseMonth(cell(row, idx.month))
     const year = parseYear(cell(row, idx.year))
     const ageRaw = cell(row, idx.age)
@@ -160,7 +166,7 @@ export function parseSheet2(rows: string[][]): SLEvent[] {
       cell(row, idx.sign36),
     ]
 
-    const province = normProvince(cell(row, idx.province))
+    const province = normProvince(provinceRaw)
 
     events.push({
       zone: zoneOf(province, cell(row, idx.zone)),
@@ -170,7 +176,7 @@ export function parseSheet2(rows: string[][]): SLEvent[] {
       monthLabel: monthLabel(month, year),
 
       province,
-      headline: cell(row, idx.headline),
+      headline,
       link: cell(row, idx.link),
 
       severity: severityOf(severityRaw),
