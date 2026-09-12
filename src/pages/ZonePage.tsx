@@ -11,6 +11,7 @@ import type { SLEvent, HazardEvent } from '@/types'
 import { applyFilters, computeTimeliness } from '@/data'
 import type { UseFiltersResult } from '@/hooks/useFilters'
 import { useFilterUrlSync } from '@/hooks/useFilterUrlSync'
+import { HEADER_HEIGHT_PX } from '@/components/layout/PageHeader'
 import FilterBar, { describeApplied } from '@/components/layout/FilterBar'
 import SectionNav from '@/components/layout/SectionNav'
 import TimelinessCard from '@/components/widgets/TimelinessCard'
@@ -104,7 +105,10 @@ export default function ZonePage({ sl, hz, filters }: ZonePageProps) {
   )
 
   return (
-    <div className="flex min-h-[calc(100vh-128px)] relative">
+    <div
+      className="flex relative"
+      style={{ minHeight: `calc(100vh - ${HEADER_HEIGHT_PX}px)` }}
+    >
       {/* Pinned left-edge button when sidebar is closed so it stays accessible anywhere on the page */}
       <button
         type="button"

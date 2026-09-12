@@ -24,9 +24,8 @@ textarea {
     /* UX-06: anchor jumps / focus scrolls stop below the sticky header+filter stack.
        FilterBar keeps --sticky-offset up to date with a ResizeObserver. The fallback is used on
        routes that never mount a FilterBar (เกณฑ์และแบบฟอร์ม, ติดต่อเรา, ผู้ประสานงาน), so it must
-       match PageHeader's HEADER_HEIGHT_PX — now 128px (80px title row + 48px nav row), up from
-       96px when the header was a single 72px row. */
-    scroll-padding-top: var(--sticky-offset, 128px);
+       match PageHeader's HEADER_HEIGHT_PX (80px when nav bar is hidden, 128px when nav bar is active). */
+    scroll-padding-top: var(--sticky-offset, 80px);
   }
 
   body {

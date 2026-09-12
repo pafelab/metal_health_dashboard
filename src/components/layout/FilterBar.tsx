@@ -468,7 +468,11 @@ export default function FilterBar({
         ref={barRef}
         aria-label="ฟิลเตอร์ข้อมูล"
         aria-hidden={!isOpen}
-        className={`hidden lg:block shrink-0 bg-white sticky top-[128px] h-[calc(100vh-128px)] z-20 overflow-hidden transition-[width,opacity] duration-300 ease-in-out ${
+        style={{
+          top: HEADER_HEIGHT_PX,
+          height: `calc(100vh - ${HEADER_HEIGHT_PX}px)`,
+        }}
+        className={`hidden lg:block shrink-0 bg-white sticky z-20 overflow-hidden transition-[width,opacity] duration-300 ease-in-out ${
           isOpen
             ? 'w-80 border-r border-slate-200 opacity-100'
             : 'w-0 border-r-0 border-transparent opacity-0 pointer-events-none'

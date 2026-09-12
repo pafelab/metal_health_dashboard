@@ -62,7 +62,10 @@ export interface PageHeaderProps {
  * 80 (title row) + 48 (nav row). Was 72 before the redesign added the nav row and the subheader.
  */
 export const TITLE_ROW_HEIGHT_PX = 80
-export const NAV_ROW_HEIGHT_PX = 48
+// Primary navigation bar row is commented out by request (default to display is Social Listening 2569).
+// Set NAV_ROW_HEIGHT_PX = 48 to restore the navigation bar.
+// export const NAV_ROW_HEIGHT_PX = 48
+export const NAV_ROW_HEIGHT_PX = 0
 export const HEADER_HEIGHT_PX = TITLE_ROW_HEIGHT_PX + NAV_ROW_HEIGHT_PX
 
 /** Deck slide 10: the owning division, spelled out under the product name. */
@@ -151,8 +154,9 @@ export default function PageHeader({
         )}
       </div>
 
-      {/* Row 2: primary navigation (replaces the deleted sidebar). Never wraps — it scrolls
-          sideways — so the header's height stays exactly HEADER_HEIGHT_PX at every width. */}
+      {/* Row 2: primary navigation bar hidden by request (default display: Social Listening 2569).
+          Uncomment this block and restore NAV_ROW_HEIGHT_PX = 48 above to re-enable. */}
+      {/*
       <nav
         aria-label="เมนูหลัก"
         className="flex items-center gap-1.5 px-4 sm:px-6 overflow-x-auto no-scrollbar border-t border-slate-100"
@@ -168,10 +172,6 @@ export default function PageHeader({
               onClick={() => onNavigate?.(tab.hash)}
               aria-current={isActive ? 'page' : undefined}
               title={tab.description}
-              // The global :focus-visible outline sits 2px OUTSIDE the element; these 45px pills
-              // live in a 48px overflow-x-auto row, so that ring would be clipped by the scroll
-              // box (it was not, back when this nav was in the sidebar). An inset ring instead —
-              // the same pattern AnalysisGroup's summary uses.
               className={`shrink-0 inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-xl px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-s1-600 ${
                 isActive
                   ? 'bg-s1-50 text-s1-700 font-semibold'
@@ -179,13 +179,13 @@ export default function PageHeader({
               }`}
             >
               {Icon && <Icon size={18} strokeWidth={2.25} aria-hidden="true" />}
-              {/* UX-15: Thai task names are never clipped; the row scrolls instead. */}
               {tab.label}
               {tab.description && <span className="sr-only"> — {tab.description}</span>}
             </button>
           )
         })}
       </nav>
+      */}
     </header>
   )
 }

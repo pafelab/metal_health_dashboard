@@ -4,6 +4,7 @@
 // announced to assistive tech is 'กำลังโหลดข้อมูล'.
 
 import type { ReactNode } from 'react'
+import { HEADER_HEIGHT_PX } from '@/components/layout/PageHeader'
 
 export interface LoadingSkeletonProps {
   /** Visually-hidden text announced while the placeholders are on screen. */
@@ -21,7 +22,12 @@ function CardShell({ children }: { children: ReactNode }) {
 
 export default function LoadingSkeleton({ label = 'กำลังโหลดข้อมูล' }: LoadingSkeletonProps) {
   return (
-    <div role="status" aria-busy="true" className="flex min-h-[calc(100vh-128px)]">
+    <div
+      role="status"
+      aria-busy="true"
+      className="flex"
+      style={{ minHeight: `calc(100vh - ${HEADER_HEIGHT_PX}px)` }}
+    >
       <span className="sr-only">{label}</span>
 
       {/* Filter sidebar skeleton */}
