@@ -180,6 +180,14 @@ function sumValues(data: ChartDatum[]): number {
 
 const baseTextStyle = { fontFamily: FONT, fontSize: LABEL_SIZE }
 
+const baseAnimationConfig = {
+  animation: !prefersReducedMotion(),
+  animationDuration: 500,
+  animationDurationUpdate: 500,
+  animationEasing: 'cubicOut' as const,
+  animationEasingUpdate: 'cubicInOut' as const,
+}
+
 const baseTooltip: EChartsOption['tooltip'] = {
   textStyle: baseTextStyle,
   confine: true,
@@ -303,6 +311,7 @@ function buildAxisOption(
               },
             }
           : undefined,
+      universalTransition: !prefersReducedMotion() ? { divideShape: 'clone' } : false,
       label: {
         show: true,
         position: isHorizontal ? 'right' : 'top',
@@ -320,7 +329,7 @@ function buildAxisOption(
 
   return {
     textStyle: baseTextStyle,
-    animation: !prefersReducedMotion(),
+    ...baseAnimationConfig,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tooltip: { ...baseTooltip, trigger: 'axis', formatter: (p: any) => {
       const item = Array.isArray(p) ? p[0] : p
@@ -376,7 +385,7 @@ function buildPieFamilyOption(
 
   return {
     textStyle: baseTextStyle,
-    animation: !prefersReducedMotion(),
+    ...baseAnimationConfig,
     color: palette,
     tooltip: { ...baseTooltip, trigger: 'item', formatter: (p: any) => `${p.name}<br/>${labelFmt({ value: p.value })}` },
     legend: {
@@ -395,6 +404,7 @@ function buildPieFamilyOption(
         center: ['50%', '46%'],
         roseType: kind === 'rose' ? 'radius' : undefined,
         avoidLabelOverlap: true,
+        universalTransition: !prefersReducedMotion() ? { divideShape: 'clone' } : false,
         itemStyle: { borderColor: '#fff', borderWidth: 2, borderRadius: 4 },
         data: data.map((d, i) => ({
           name: d.name,
@@ -427,7 +437,7 @@ function buildTreemapOption({ data, total, valueSuffix = '', colors }: ChartOpti
   const palette = colors ?? PALETTE.categorical
   return {
     textStyle: baseTextStyle,
-    animation: !prefersReducedMotion(),
+    ...baseAnimationConfig,
     color: palette,
     tooltip: { ...baseTooltip, formatter: (p: any) => `${p.name}<br/>${labelFmt({ value: p.value })}` },
     series: [
@@ -438,6 +448,7 @@ function buildTreemapOption({ data, total, valueSuffix = '', colors }: ChartOpti
         nodeClick: false,
         breadcrumb: { show: false },
         upperLabel: { show: false },
+        universalTransition: !prefersReducedMotion() ? { divideShape: 'clone' } : false,
         itemStyle: { borderColor: '#fff', borderWidth: 2, gapWidth: 2 },
         label: {
           fontFamily: FONT,
@@ -462,7 +473,7 @@ function buildFunnelOption({ data, total, valueSuffix = '', colors }: ChartOptio
   const palette = colors ?? PALETTE.categorical
   return {
     textStyle: baseTextStyle,
-    animation: !prefersReducedMotion(),
+    ...baseAnimationConfig,
     color: palette,
     tooltip: { ...baseTooltip, trigger: 'item', formatter: (p: any) => `${p.name}<br/>${labelFmt({ value: p.value })}` },
     series: [
@@ -611,11 +622,12 @@ export function buildMultiSeriesOption(
     },
     // Thin stacked segments can't fit "123 (45.6%)" — drop the label rather than overlap it.
     labelLayout: { hideOverlap: true },
+    universalTransition: !prefersReducedMotion() ? { divideShape: 'clone' } : false,
   }))
 
   return {
     textStyle: baseTextStyle,
-    animation: !prefersReducedMotion(),
+    ...baseAnimationConfig,
     color: palette,
     tooltip: {
       ...baseTooltip,

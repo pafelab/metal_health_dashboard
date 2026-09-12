@@ -16,6 +16,7 @@ export interface CardProps {
   icon?: LucideIcon
   accent?: 's1' | 's2' | 'neutral'
   right?: ReactNode
+  rightClassName?: string
   className?: string
   bodyClassName?: string
   /**
@@ -50,6 +51,7 @@ export default function Card({
   icon: Icon,
   accent = 'neutral',
   right,
+  rightClassName,
   className = '',
   bodyClassName = '',
   headerTone = 'plain',
@@ -119,7 +121,9 @@ export default function Card({
               (slate borders, slate text), so they get their own white tile to sit on rather than
               becoming unreadable on the fill. */}
           {right !== undefined && (
-            <div className={`ml-auto min-w-0 max-w-full ${banded ? 'rounded-xl bg-white/95 p-1' : ''}`}>{right}</div>
+            <div className={`ml-auto min-w-0 max-w-full ${rightClassName ?? ''}`}>
+              {right}
+            </div>
           )}
         </div>
       )}

@@ -23,7 +23,7 @@
 // — they are only those recorded against a patient group. The base is therefore never called
 // 'ทั้งหมด': it is 'ในเหตุการณ์ที่ระบุกลุ่มผู้ป่วย', which reconciles with the rows shown.
 
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { BarChart3, BarChartHorizontal, HeartCrack, Table2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -191,16 +191,18 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
       right={<ChartSwitcher options={SWITCH_OPTIONS} current={type} onChange={setType} />}
     >
       {type === 'table' ? (
-        <div className="flex flex-1 flex-col justify-center">
+        <div key="table" className="animate-chart-transition flex flex-1 flex-col justify-center">
           <TableView rows={rows} totalDeaths={totalDeaths} totalInjured={totalInjured} maxVal={maxVal} />
         </div>
       ) : (
-        <ReactECharts
-          option={option}
-          style={{ height: chartHeight, width: '100%' }}
-          notMerge
-          lazyUpdate
-        />
+        <div key={type} className="animate-chart-transition">
+          <ReactECharts
+            option={option}
+            style={{ height: chartHeight, width: '100%' }}
+            notMerge
+            lazyUpdate
+          />
+        </div>
       )}
     </Card>
   )
@@ -209,34 +211,100 @@ export default function GroupImpactTable({ widgetId, rows }: GroupImpactTablePro
 /**
  * Small icon switcher for widgets that build their own ECharts option instead of going through
  * SwitchableChart. Exported so the Section-1 donut / 7-group cards use the same control rather
- * than a third copy of it.
+ * than a third copy of it. Includes smooth sliding pill transition animation.
  */
 export function ChartSwitcher({
   options,
   current,
   onChange,
+  size = 'md',
+  className = '',
 }: {
   options: SwitchOption[]
   current: ChartType
   onChange: (t: ChartType) => void
+  size?: 'sm' | 'md'
+  className?: string
 }) {
+  const isSm = size === 'sm'
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [indicator, setIndicator] = useState<{ left: number; top: number; width: number; height: number; ready: boolean }>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    ready: false,
+  })
+
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const activeEl = buttonRefs.current[current]
+      if (activeEl && containerRef.current) {
+        setIndicator({
+          left: activeEl.offsetLeft,
+          top: activeEl.offsetTop,
+          width: activeEl.offsetWidth,
+          height: activeEl.offsetHeight,
+          ready: true,
+        })
+      }
+    }
+
+    updatePosition()
+    const raf = requestAnimationFrame(updatePosition)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [current, options])
+
   return (
-    <div className="flex items-center gap-1 rounded-full bg-slate-100 p-1">
-      {options.map(({ type, icon: Icon, label }) => (
-        <button
-          key={type}
-          type="button"
-          aria-label={label}
-          title={label}
-          aria-pressed={current === type}
-          onClick={() => onChange(type)}
-          className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-s1-700 ${
-            current === type ? 'bg-white text-s1-600 shadow-card' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <Icon size={16} strokeWidth={2} />
-        </button>
-      ))}
+    <div
+      ref={containerRef}
+      className={`relative inline-flex items-center gap-1 rounded-xl bg-white/95 p-1 shadow-sm border border-slate-200/50 ${className}`}
+      role="group"
+      aria-label="เลือกรูปแบบกราฟ"
+    >
+      {/* Sliding indicator pill */}
+      {indicator.ready && (
+        <div
+          className="absolute top-0 left-0 rounded-lg bg-s1-600 shadow-xs pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]"
+          style={{
+            transform: `translate3d(${indicator.left}px, ${indicator.top}px, 0)`,
+            width: `${indicator.width}px`,
+            height: `${indicator.height}px`,
+          }}
+          aria-hidden="true"
+        />
+      )}
+
+      {options.map(({ type, icon: Icon, label }) => {
+        const isActive = current === type
+        return (
+          <button
+            key={type}
+            ref={(el) => {
+              buttonRefs.current[type] = el
+            }}
+            type="button"
+            aria-label={label}
+            title={label}
+            aria-pressed={isActive}
+            onClick={() => onChange(type)}
+            className={`relative z-10 flex items-center justify-center rounded-lg transition-colors duration-200 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-600 active:scale-95 ${
+              isSm ? 'h-7 w-7' : 'h-9 w-9'
+            } ${
+              isActive
+                ? 'text-white font-semibold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Icon size={isSm ? 14 : 16} strokeWidth={2} />
+          </button>
+        )
+      })}
     </div>
   )
 }

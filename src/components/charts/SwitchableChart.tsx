@@ -4,7 +4,7 @@
 // summary, the plot is exposed as role="img" with a Thai label, and the toolbar is keyboard
 // operable with aria-pressed state.
 
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import {
   BarChart3,
@@ -109,43 +109,131 @@ export function TableToggle({
   )
 }
 
-function ChartTypeSwitcher({
-  allowedTypes,
-  active,
-  onChange,
-  accent,
-}: {
+export interface ChartSegmentedControlProps {
   allowedTypes: ChartType[]
-  active: ChartType
-  onChange: (t: ChartType) => void
+  activeType: ChartType
+  onTypeChange: (t: ChartType) => void
+  showTable: boolean
+  onToggleTable: (show: boolean) => void
   accent: 's1' | 's2'
-}): JSX.Element {
-  const accentColor = accent === 's2' ? PALETTE.section2 : PALETTE.section1
+  className?: string
+}
+
+/**
+ * Modern segmented control with a smooth sliding indicator pill transition animation.
+ * Unifies chart type buttons and the table toggle into one seamless bar.
+ */
+export function ChartSegmentedControl({
+  allowedTypes,
+  activeType,
+  onTypeChange,
+  showTable,
+  onToggleTable,
+  accent,
+  className = '',
+}: ChartSegmentedControlProps): JSX.Element {
+  const accentColor = PRESSED_LABEL_BG[accent]
+  const activeKey = showTable ? 'table' : activeType
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const [indicator, setIndicator] = useState<{ left: number; top: number; width: number; height: number; ready: boolean }>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    ready: false,
+  })
+
+  const renderable = useMemo(() => allowedTypes.filter(isRenderable), [allowedTypes])
+
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const activeEl = buttonRefs.current[activeKey]
+      if (activeEl && containerRef.current) {
+        setIndicator({
+          left: activeEl.offsetLeft,
+          top: activeEl.offsetTop,
+          width: activeEl.offsetWidth,
+          height: activeEl.offsetHeight,
+          ready: true,
+        })
+      }
+    }
+
+    updatePosition()
+    const raf = requestAnimationFrame(updatePosition)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [activeKey, renderable])
+
   return (
-    /* responsive-audit R01: wraps inside a narrow card instead of overflowing it. */
-    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="เลือกรูปแบบกราฟ">
-      {allowedTypes.filter(isRenderable).map((t) => {
+    <div
+      ref={containerRef}
+      className={`relative inline-flex flex-wrap items-center gap-1 rounded-xl p-1 bg-white/95 shadow-sm border border-slate-200/50 ${className}`}
+      role="group"
+      aria-label="เลือกรูปแบบกราฟและตาราง"
+    >
+      {/* Sliding indicator pill with smooth spring/cubic-bezier transition */}
+      {indicator.ready && (
+        <div
+          className="absolute top-0 left-0 rounded-lg pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] shadow-xs"
+          style={{
+            transform: `translate3d(${indicator.left}px, ${indicator.top}px, 0)`,
+            width: `${indicator.width}px`,
+            height: `${indicator.height}px`,
+            backgroundColor: accentColor,
+          }}
+          aria-hidden="true"
+        />
+      )}
+
+      {renderable.map((t) => {
         const Icon = TYPE_ICON[t]
-        const isActive = t === active
+        const isActive = !showTable && t === activeType
         return (
           <button
             key={t}
+            ref={(el) => {
+              buttonRefs.current[t] = el
+            }}
             type="button"
             title={TYPE_LABEL_TH[t]}
             aria-label={TYPE_LABEL_TH[t]}
             aria-pressed={isActive}
-            onClick={() => onChange(t)}
-            className={`flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${FOCUS_RING}`}
-            style={
-              isActive
-                ? { backgroundColor: accentColor, color: '#fff' }
-                : { backgroundColor: 'transparent', color: '#475569' }
-            }
+            onClick={() => {
+              onToggleTable(false)
+              onTypeChange(t)
+            }}
+            className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-lg transition-colors duration-200 cursor-pointer active:scale-95 ${FOCUS_RING} ${
+              isActive ? 'text-white font-semibold' : 'text-slate-600 hover:text-slate-900'
+            }`}
           >
             <Icon size={16} strokeWidth={2} aria-hidden="true" />
           </button>
         )
       })}
+
+      {/* Accessible data table toggle option */}
+      <button
+        key="table"
+        ref={(el) => {
+          buttonRefs.current['table'] = el
+        }}
+        type="button"
+        aria-pressed={showTable}
+        aria-label="ดูข้อมูลเป็นตาราง"
+        title="ดูข้อมูลเป็นตาราง"
+        onClick={() => onToggleTable(!showTable)}
+        className={`relative z-10 flex h-10 min-w-[44px] items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors duration-200 cursor-pointer active:scale-95 ${FOCUS_RING} ${
+          showTable ? 'text-white font-semibold' : 'text-slate-600 hover:text-slate-900'
+        }`}
+      >
+        <Table2 size={16} strokeWidth={2} aria-hidden="true" />
+        <span>ตาราง</span>
+      </button>
     </div>
   )
 }
@@ -243,28 +331,21 @@ export default function SwitchableChart(p: SwitchableChartProps): JSX.Element {
       headerTone={p.headerTone}
       right={
         isEmpty ? undefined : (
-          <div
-            className={`flex flex-wrap items-center justify-end gap-2 ${
-              p.headerTone && p.headerTone !== 'plain' ? 'rounded-xl bg-white/95 p-1 shadow-sm' : ''
-            }`}
-          >
-            {allowed.length > 1 && !showTable && (
-              <ChartTypeSwitcher
-                allowedTypes={allowed}
-                active={effectiveType}
-                onChange={setStoredType}
-                accent={accent}
-              />
-            )}
-            <TableToggle pressed={showTable} onToggle={() => setShowTable((v) => !v)} accent={accent} />
-          </div>
+          <ChartSegmentedControl
+            allowedTypes={allowed}
+            activeType={effectiveType}
+            onTypeChange={setStoredType}
+            showTable={showTable}
+            onToggleTable={setShowTable}
+            accent={accent}
+          />
         )
       }
     >
       {isEmpty || !option ? (
         <EmptyState />
       ) : showTable ? (
-        <>
+        <div key="table" className="animate-chart-transition">
           <DataTable
             caption={p.title}
             categories={categories}
@@ -276,14 +357,14 @@ export default function SwitchableChart(p: SwitchableChartProps): JSX.Element {
             maxHeight={height}
           />
           <ChartSummary text={summary} />
-        </>
+        </div>
       ) : (
-        <>
+        <div key={effectiveType} className="animate-chart-transition">
           <div role="img" aria-label={`${p.title} แผนภูมิ`}>
             <ReactECharts option={option} style={{ height, width: '100%' }} notMerge lazyUpdate />
           </div>
           <ChartSummary text={summary} />
-        </>
+        </div>
       )}
     </Card>
   )
@@ -366,28 +447,21 @@ export function MultiSeriesChart(p: MultiSeriesChartProps): JSX.Element {
       headerTone={p.headerTone}
       right={
         isEmpty ? undefined : (
-          <div
-            className={`flex flex-wrap items-center justify-end gap-2 ${
-              p.headerTone && p.headerTone !== 'plain' ? 'rounded-xl bg-white/95 p-1 shadow-sm' : ''
-            }`}
-          >
-            {allowed.length > 1 && !showTable && (
-              <ChartTypeSwitcher
-                allowedTypes={allowed}
-                active={effectiveType}
-                onChange={setStoredType}
-                accent={accent}
-              />
-            )}
-            <TableToggle pressed={showTable} onToggle={() => setShowTable((v) => !v)} accent={accent} />
-          </div>
+          <ChartSegmentedControl
+            allowedTypes={allowed}
+            activeType={effectiveType}
+            onTypeChange={setStoredType}
+            showTable={showTable}
+            onToggleTable={setShowTable}
+            accent={accent}
+          />
         )
       }
     >
       {isEmpty || !option ? (
         <EmptyState />
       ) : showTable ? (
-        <>
+        <div key="table" className="animate-chart-transition">
           <DataTable
             caption={p.title}
             categories={p.categories}
@@ -398,14 +472,14 @@ export function MultiSeriesChart(p: MultiSeriesChartProps): JSX.Element {
             maxHeight={height}
           />
           <ChartSummary text={summary} />
-        </>
+        </div>
       ) : (
-        <>
+        <div key={effectiveType} className="animate-chart-transition">
           <div role="img" aria-label={`${p.title} แผนภูมิ`}>
             <ReactECharts option={option} style={{ height, width: '100%' }} notMerge lazyUpdate />
           </div>
           <ChartSummary text={summary} />
-        </>
+        </div>
       )}
     </Card>
   )

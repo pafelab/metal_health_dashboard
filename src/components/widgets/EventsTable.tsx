@@ -171,7 +171,6 @@ export default function EventsTable({
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<SortState>({ column: 'date', dir: 'desc' })
   const searchId = useId()
-  const hintId = useId()
 
   useEffect(() => {
     setPage(1)
@@ -230,66 +229,31 @@ export default function EventsTable({
         icon={Table2}
         accent={accent}
         headerTone={headerTone}
+        rightClassName="self-center"
         right={
-          <div className="w-full sm:w-auto">
-            <label
-              htmlFor={searchId}
-              className={`block text-xs font-bold ${
-                headerTone && headerTone !== 'plain' ? 'text-white' : 'text-slate-600'
-              }`}
-            >
-              ค้นหาในตารางนี้
-            </label>
-            <div className="mt-1 flex items-center gap-2">
-              <div className="relative">
-                <Search
-                  size={16}
-                  aria-hidden="true"
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-                />
-                <input
-                  id={searchId}
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  aria-describedby={hintId}
-                  placeholder="ค้นหาหัวข้อข่าวหรือจังหวัด"
-                  className="w-56 max-w-full rounded-full border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-500 focus:border-slate-500 focus:ring-2 focus:ring-slate-300"
-                />
-              </div>
-              {search !== '' && (
-                <button
-                  type="button"
-                  onClick={() => setSearch('')}
-                  className={`whitespace-nowrap rounded-full border px-3 py-2 text-xs font-bold outline-none transition-colors ${
-                    headerTone && headerTone !== 'plain'
-                      ? 'border-white/40 bg-white/20 text-white hover:bg-white/30 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-s1-700'
-                      : 'border-slate-300 text-slate-600 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2'
-                  }`}
-                >
-                  ล้างคำค้น
-                </button>
-              )}
-            </div>
-            <p
-              id={hintId}
-              className={`mt-1 max-w-[16rem] text-xs ${
-                headerTone && headerTone !== 'plain' ? 'text-white/80' : 'text-slate-500'
-              }`}
-            >
-              ค้นหาเฉพาะหัวข้อข่าวและจังหวัดในตารางนี้ ไม่กระทบฟิลเตอร์ด้านบน
-            </p>
-            {flaggedCount > 0 && onToggleOutOfPeriodOnly && (
+          <div className="relative w-full sm:w-64">
+            <Search
+              size={16}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
+            <input
+              id={searchId}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="ค้นหาหัวข้อข่าวหรือจังหวัด"
+              placeholder="ค้นหาหัวข้อข่าวหรือจังหวัด"
+              className="w-full rounded-full border border-slate-200 bg-white py-1.5 pl-9 pr-8 text-sm text-slate-800 shadow-sm outline-none placeholder:text-slate-400 focus:border-s1-500 focus:ring-2 focus:ring-s1-200"
+            />
+            {search !== '' && (
               <button
                 type="button"
-                aria-pressed={outOfPeriodOnly}
-                onClick={() => onToggleOutOfPeriodOnly(!outOfPeriodOnly)}
-                className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-amber-400 bg-amber-50 px-4 py-1.5 text-xs font-bold text-amber-900 outline-none hover:bg-amber-100 focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
+                onClick={() => setSearch('')}
+                aria-label="ล้างคำค้นหา"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
               >
-                <AlertTriangle size={14} aria-hidden="true" />
-                {outOfPeriodOnly
-                  ? 'แสดงทุกรายการ'
-                  : `ดูเฉพาะรายการนอกช่วงข้อมูล (${flaggedCount.toLocaleString('th-TH')})`}
+                <X size={14} aria-hidden="true" />
               </button>
             )}
           </div>

@@ -309,7 +309,7 @@ export default function OtherHazardsSection({
             icon={MapPin}
             data={topProvinces}
             defaultType="hbar"
-            allowedTypes={['hbar', 'bar']}
+            allowedTypes={['hbar', 'bar', 'pie', 'donut']}
             accent="s2"
             headerTone="brand"
             total={provinceTotal}

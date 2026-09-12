@@ -86,41 +86,37 @@ function ZoneTile({ zone, result, selected }: ZoneTileProps) {
 
   return (
     <li
-      className={`flex flex-col gap-2 rounded-2xl border bg-white p-4 ${
-        selected ? 'border-s2-400 ring-2 ring-s2-200' : 'border-slate-200'
+      className={`flex flex-col justify-between gap-1.5 rounded-xl border bg-white p-3 transition-all hover:shadow-xs ${
+        selected ? 'border-s2-400 ring-2 ring-s2-200 bg-s2-50/20' : 'border-slate-200/90'
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 font-semibold text-slate-800">{formatZoneLabel(zone)}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 text-sm font-semibold text-slate-800 truncate">{formatZoneLabel(zone)}</p>
         {/* The score badge. Text carries the meaning; the tint only reinforces it. */}
-        <span className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-bold ${TONE_CHIP[tone]}`}>
+        <span className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-bold ${TONE_CHIP[tone]}`}>
           {hasData ? `คะแนน ${result.level}` : 'ไม่มีข้อมูล'}
         </span>
       </div>
 
-      {/* flex-wrap + a nowrap label: Thai has no inter-word spaces, so an inline run lets the
-          browser break inside "ส่งตามเกณฑ์" itself on a narrow card (deck slide 20 —
-          "ดูการตัดคำให้ด้วย"). Wrapping the label as one atom moves it to its own line instead. */}
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className={`text-3xl font-extrabold leading-none ${TONE_TEXT[tone]}`}>
-          {/* Two decimals: an 84.99% zone rounded to "85%" would sit next to a 0.3 badge and look
-              like a mistake. */}
+      {/* flex-wrap + a nowrap label: Thai has no inter-word spaces */}
+      <div className="flex flex-wrap items-baseline gap-x-1.5">
+        <span className={`text-xl font-bold leading-none ${TONE_TEXT[tone]}`}>
+          {/* Two decimals */}
           {hasData ? `${result.percent!.toFixed(2)}%` : '—'}
         </span>
-        {/* The label only makes sense beside a percent: "— ส่งตามเกณฑ์" reads as a measured zero. */}
         {hasData && (
-          <span className="whitespace-nowrap align-baseline text-sm font-medium text-slate-600">ส่งตามเกณฑ์</span>
+          <span className="whitespace-nowrap text-xs font-medium text-slate-500">ส่งตามเกณฑ์</span>
         )}
       </div>
 
-      <p className="text-xs font-medium text-slate-600">
+      <p className="text-[11px] font-medium text-slate-500">
         {hasData
           ? `${result.pass.toLocaleString('th-TH')} จาก ${result.total.toLocaleString('th-TH')} เหตุการณ์`
-          : 'ไม่มีเหตุการณ์ที่บันทึกการส่งรายงานในเขตนี้'}
+          : 'ไม่มีเหตุการณ์ที่บันทึกการส่งรายงาน'}
       </p>
 
       {/* Marker in text, not colour alone, when the page is focused on this zone. */}
-      {selected && <p className="text-xs font-bold text-s2-700">· เขตที่กำลังดูอยู่</p>}
+      {selected && <p className="text-[11px] font-bold text-s2-700">· เขตที่กำลังดูอยู่</p>}
     </li>
   )
 }
@@ -214,7 +210,7 @@ export default function ZoneScoreSection({ sl, hz, applied, selectedZone }: Zone
           {/* Fixed เขตสุขภาพที่ 1 → 13 order — deliberately NOT sorted by score, so a zone stays in
               the same place between filter changes and 'ไม่มีข้อมูล' zones keep their natural slot
               instead of needing a rule about where an absent score ranks. */}
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-5">
             {zones.map((z) => (
               <ZoneTile
                 key={z.zone}

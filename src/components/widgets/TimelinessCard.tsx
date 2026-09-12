@@ -24,6 +24,7 @@ import { TIMELINESS_LEVELS } from '@/config'
 
 export interface TimelinessCardProps {
   result: TimelinessResult
+  className?: string
 }
 
 const ICONS = LucideIcons as unknown as Record<string, LucideIcon>
@@ -38,50 +39,72 @@ function iconFor(name: string): LucideIcon {
 const SCALE_MIN = TIMELINESS_LEVELS[TIMELINESS_LEVELS.length - 1].level
 const SCALE_MAX = TIMELINESS_LEVELS[0].level
 
-export default function TimelinessCard({ result }: TimelinessCardProps) {
+export default function TimelinessCard({ result, className = '' }: TimelinessCardProps) {
   const { pass, total, percent, level, color, icon } = result
   const Icon = iconFor(icon)
   const hasData = total > 0 && percent !== null
 
   return (
-    <Card title="เป้าหมายการดำเนินงานในแต่ละพื้นที่ (ทันเวลา)" icon={LucideIcons.Target} accent="neutral" headerTone="brand">
-      <div className="flex flex-col items-center gap-4 py-2 text-center sm:flex-row sm:items-center sm:text-left">
-        <div
-          className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: `${color}1A` }}
-        >
-          <Icon size={48} color={color} strokeWidth={1.75} />
-        </div>
-        <div className="flex-1">
-          <div className="text-kpi font-extrabold leading-none" style={{ color }}>
-            {hasData ? `${percent.toFixed(2)}%` : '—'}
+    <div className={`max-w-4xl ${className}`}>
+      <Card title="เป้าหมายการดำเนินงานในแต่ละพื้นที่ (ทันเวลา)" icon={LucideIcons.Target} accent="neutral" headerTone="brand">
+        <div className="flex flex-col gap-4 py-2 sm:flex-row sm:items-center sm:gap-6">
+          {/* Status icon + percent */}
+          <div className="flex items-center gap-3.5 shrink-0">
+            <div
+              className="flex h-16 w-16 sm:h-18 sm:w-18 shrink-0 items-center justify-center rounded-2xl"
+              style={{ backgroundColor: `${color}18` }}
+            >
+              <Icon size={38} color={color} strokeWidth={2} />
+            </div>
+            <div>
+              <div className="text-3xl sm:text-4xl font-extrabold leading-none tracking-tight" style={{ color }}>
+                {hasData ? `${percent.toFixed(2)}%` : '—'}
+              </div>
+              <div className="mt-1 text-xs sm:text-sm font-medium text-slate-600">
+                ร้อยละของเหตุการณ์ที่ส่งรายงานทันเวลา
+              </div>
+            </div>
           </div>
-          <div className="mt-1 text-body text-slate-600">ร้อยละของเหตุการณ์ที่ส่งรายงานทันเวลา</div>
-          {hasData ? (
-            <>
-              <div className="mt-2 text-cardTitle font-semibold text-slate-600">
-                ระดับ {level}
-                <span className="ml-2 align-middle text-sm font-medium text-slate-600">
-                  (คะแนนระดับ {SCALE_MIN}–{SCALE_MAX} ไม่ใช่ร้อยละ)
-                </span>
-              </div>
-              <div className="mt-1 text-body text-slate-600">
-                (ดำเนินการทันเวลา {pass} จากรวมทั้งหมด {total} เหตุการณ์)
-              </div>
-            </>
-          ) : (
-            <div className="mt-2 text-body font-semibold text-slate-600">ไม่มีข้อมูลการส่งรายงานในขอบเขตนี้</div>
-          )}
-        </div>
-      </div>
 
-      {hasData && (
-        <DenominatorNote className="mt-3 text-left">
-          คำนวณจากเหตุการณ์ที่มีข้อมูลการส่งรายงาน {total} เหตุการณ์ (Social Listening + ภัยอื่นๆ ตามฟิลเตอร์ที่ใช้)
-          จำนวนนี้จึงต่างจากจำนวนเหตุการณ์ของแต่ละส่วนด้านบนได้ · เกณฑ์แปลงร้อยละเป็นคะแนนระดับ {SCALE_MIN}–
-          {SCALE_MAX} อยู่ในหัวข้อ “การประเมินผลการรายงานข่าว (13 เขตสุขภาพ)” ด้านล่าง
-        </DenominatorNote>
-      )}
-    </Card>
+          {/* Divider */}
+          <div className="hidden h-12 w-px bg-slate-200 sm:block mx-1 shrink-0" />
+
+          {/* Score & Event details */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-700">
+            {hasData ? (
+              <>
+                <div className="flex flex-col">
+                  <span className="text-xs text-slate-500 font-medium">คะแนนที่ได้</span>
+                  <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span className="text-lg sm:text-xl font-bold text-slate-800">ระดับ {level}</span>
+                    <span className="text-xs text-slate-500 font-medium">(เกณฑ์ {SCALE_MIN}–{SCALE_MAX})</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col">
+                  <span className="text-xs text-slate-500 font-medium">การดำเนินงานทันเวลา</span>
+                  <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span className="text-lg sm:text-xl font-bold text-slate-800">
+                      {pass.toLocaleString('th-TH')}
+                      <span className="text-xs sm:text-sm font-normal text-slate-500"> / {total.toLocaleString('th-TH')} เหตุการณ์</span>
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="text-sm font-medium text-slate-500">ไม่มีข้อมูลการส่งรายงานในขอบเขตนี้</div>
+            )}
+          </div>
+        </div>
+
+        {hasData && (
+          <DenominatorNote className="mt-3 text-left">
+            คำนวณจากเหตุการณ์ที่มีข้อมูลการส่งรายงาน {total.toLocaleString('th-TH')} เหตุการณ์ (Social Listening + ภัยอื่นๆ ตามฟิลเตอร์ที่ใช้)
+            จำนวนนี้จึงต่างจากจำนวนเหตุการณ์ของแต่ละส่วนด้านบนได้ · เกณฑ์แปลงร้อยละเป็นคะแนนระดับ {SCALE_MIN}–
+            {SCALE_MAX} อยู่ในหัวข้อ “การประเมินผลการรายงานข่าว (13 เขตสุขภาพ)” ด้านล่าง
+          </DenominatorNote>
+        )}
+      </Card>
+    </div>
   )
 }

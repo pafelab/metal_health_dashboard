@@ -47,7 +47,7 @@ import {
   Map as MapIcon,
   type LucideIcon,
 } from 'lucide-react'
-import type { SLEvent, Severity, CategoryCount } from '@/types'
+import type { SLEvent, Severity, CategoryCount, ChartType } from '@/types'
 import {
   severityCounts,
   monthlyTrend,
@@ -184,7 +184,7 @@ interface CategoryBarsProps {
   data: CategoryCount[]
   /** Percentage denominator. For a top-N chart this is the FULL distribution total (UX-13). */
   total: number
-  orientation?: 'hbar' | 'bar'
+  orientation?: ChartType
   colors?: string[]
   /** Wrap width for the category axis labels — long Thai names wrap, never clip ("ดูการตัดคำ"). */
   maxLabelChars?: number
@@ -202,11 +202,81 @@ function CategoryBars({
   ariaLabel,
   height,
 }: CategoryBarsProps) {
+  const isPie = orientation === 'pie' || orientation === 'donut'
+  const isDonut = orientation === 'donut'
   const horizontal = orientation === 'hbar'
   const isEmpty = data.length === 0 || data.every((d) => !d.value)
 
   const option = useMemo(() => {
     const palette = colors ?? PALETTE.categorical
+
+    if (isPie) {
+      const denom = total > 0 ? total : sumValues(data)
+      return {
+        textStyle: { fontFamily: FONT, fontSize: LABEL_SIZE },
+        color: palette,
+        tooltip: {
+          trigger: 'item' as const,
+          formatter: (p: { name?: string; value?: number }) =>
+            `${p.name ?? ''}<br/><b>${fmt(p.value ?? 0)} ราย</b> (${pctText(p.value ?? 0, denom)})`,
+        },
+        legend: {
+          bottom: 2,
+          type: 'scroll' as const,
+          textStyle: { fontFamily: FONT, fontSize: 12 },
+          formatter: (name: string) => wrapThaiLabel(name, 16),
+        },
+        title: isDonut
+          ? {
+              text: fmt(denom),
+              subtext: 'รายทั้งหมด',
+              left: 'center',
+              top: '36%',
+              itemGap: 2,
+              textStyle: { fontFamily: FONT, fontSize: 22, fontWeight: 'bold' as const, color: '#1E293B' },
+              subtextStyle: { fontFamily: FONT, fontSize: 12, color: '#64748B' },
+            }
+          : undefined,
+        series: [
+          {
+            name: ariaLabel,
+            type: 'pie' as const,
+            radius: isDonut ? ['42%', '68%'] : '66%',
+            center: ['50%', '44%'],
+            avoidLabelOverlap: true,
+            minAngle: 5,
+            itemStyle: {
+              borderColor: '#FFFFFF',
+              borderWidth: 2,
+              borderRadius: 4,
+            },
+            label: {
+              show: true,
+              position: 'outside' as const,
+              fontFamily: FONT,
+              fontSize: 12,
+              lineHeight: 16,
+              formatter: (p: { name?: string; value?: number }) => {
+                const val = p.value ?? 0
+                const pct = denom > 0 ? ((val / denom) * 100).toFixed(1) : '0'
+                return `${wrapThaiLabel(p.name ?? '', 12)}\n${fmt(val)} (${pct}%)`
+              },
+            },
+            labelLine: {
+              show: true,
+              length: 10,
+              length2: 12,
+            },
+            data: data.map((d, i) => ({
+              name: d.name,
+              value: d.value,
+              itemStyle: { color: palette[i % palette.length] },
+            })),
+          },
+        ],
+      }
+    }
+
     const catAxis = {
       type: 'category' as const,
       data: data.map((d) => d.name),
@@ -271,16 +341,22 @@ function CategoryBars({
         },
       ],
     }
-  }, [data, total, horizontal, colors, maxLabelChars])
+  }, [data, total, isPie, isDonut, horizontal, colors, maxLabelChars, ariaLabel])
 
   if (isEmpty) return <EmptyBlock />
 
   // Deck slide 15: "ไม่อยากให้เลื่อน อยากให้ข้อความขึ้นมาแบบไม่ต้องเลื่อน" — every category gets
   // its own row of real height, so all of them are on screen at once with nothing to scroll.
-  const resolvedHeight = height ?? (horizontal ? Math.max(240, data.length * 54 + 48) : 360)
+  const resolvedHeight =
+    height ??
+    (isPie
+      ? 340
+      : horizontal
+      ? Math.max(240, data.length * 54 + 48)
+      : 360)
 
   return (
-    <div role="img" aria-label={ariaLabel}>
+    <div key={orientation} role="img" aria-label={ariaLabel} className="animate-chart-transition">
       <ReactECharts option={option} style={{ height: resolvedHeight, width: '100%' }} notMerge lazyUpdate />
     </div>
   )
@@ -294,6 +370,19 @@ const PIE_SWITCH: SwitchOption[] = [
 const BAR_SWITCH: SwitchOption[] = [
   { type: 'hbar', icon: BarChartHorizontal, label: 'แท่งนอน' },
   { type: 'bar', icon: BarChart3, label: 'แท่งตั้ง' },
+]
+
+const BAR_PIE_DONUT_SWITCH: SwitchOption[] = [
+  { type: 'hbar', icon: BarChartHorizontal, label: 'แท่งนอน' },
+  { type: 'bar', icon: BarChart3, label: 'แท่งตั้ง' },
+  { type: 'pie', icon: PieChart, label: 'วงกลม' },
+  { type: 'donut', icon: Donut, label: 'โดนัท' },
+]
+
+const TOPN_SWITCH: SwitchOption[] = [
+  { type: 'hbar', icon: BarChartHorizontal, label: 'แผนภูมิแท่ง' },
+  { type: 'pie', icon: PieChart, label: 'แผนภูมิวงกลม' },
+  { type: 'donut', icon: Donut, label: 'แผนภูมิโดนัท' },
 ]
 
 /**
@@ -405,7 +494,7 @@ function PatientStatusCard({ data }: { data: CategoryCount[] }) {
 /** Deck slide 15/16 card #2 — the SEVEN การประเมินกลุ่มผู้ป่วย groups, short labels, all rows on
  *  screen at once (see the height note in CategoryBars). */
 function PatientGroup7Card({ data }: { data: CategoryCount[] }) {
-  const [type, setType] = useChartType('s1-patient-group7', 'hbar', ['hbar', 'bar'])
+  const [type, setType] = useChartType('s1-patient-group7', 'hbar', ['hbar', 'bar', 'pie', 'donut'])
   const total = useMemo(() => sumValues(data), [data])
   return (
     <Card
@@ -413,16 +502,16 @@ function PatientGroup7Card({ data }: { data: CategoryCount[] }) {
       icon={Users}
       accent="s1"
       headerTone="brand"
-      right={total > 0 ? <ChartSwitcher options={BAR_SWITCH} current={type} onChange={setType} /> : undefined}
+      right={total > 0 ? <ChartSwitcher options={BAR_PIE_DONUT_SWITCH} current={type} onChange={setType} /> : undefined}
     >
       <CategoryBars
         data={data}
         total={total}
-        orientation={type === 'bar' ? 'bar' : 'hbar'}
+        orientation={type}
         colors={GROUP7_COLORS}
         maxLabelChars={type === 'bar' ? 11 : 18}
-        ariaLabel="จำแนกประเภทผู้ป่วย 7 กลุ่ม แผนภูมิแท่ง"
-        height={type === 'bar' ? 420 : undefined}
+        ariaLabel="จำแนกประเภทผู้ป่วย 7 กลุ่ม"
+        height={type === 'bar' ? 420 : type === 'pie' || type === 'donut' ? 360 : undefined}
       />
     </Card>
   )
@@ -432,7 +521,7 @@ function PatientGroup7Card({ data }: { data: CategoryCount[] }) {
  *  ("ไม่ต้องแยก ชาย หญิง มานะ ทำแบบ ภาพรวมเลย"). New widget id: the old s1-age-gender belonged to
  *  a two-series chart whose persisted 'stacked' choice means nothing here. */
 function AgeBandCard({ data }: { data: CategoryCount[] }) {
-  const [type, setType] = useChartType('s1-age', 'bar', ['bar', 'hbar'])
+  const [type, setType] = useChartType('s1-age', 'bar', ['bar', 'hbar', 'pie', 'donut'])
   const total = useMemo(() => sumValues(data), [data])
   const ageColors = useMemo(() => AGE_BANDS.map((b) => b.color), [])
   return (
@@ -441,16 +530,16 @@ function AgeBandCard({ data }: { data: CategoryCount[] }) {
       icon={CalendarDays}
       accent="s1"
       headerTone="brand"
-      right={total > 0 ? <ChartSwitcher options={BAR_SWITCH} current={type} onChange={setType} /> : undefined}
+      right={total > 0 ? <ChartSwitcher options={BAR_PIE_DONUT_SWITCH} current={type} onChange={setType} /> : undefined}
     >
       <CategoryBars
         data={data}
         total={total}
-        orientation={type === 'hbar' ? 'hbar' : 'bar'}
+        orientation={type}
         colors={ageColors}
         maxLabelChars={type === 'hbar' ? 14 : 9}
-        ariaLabel="ช่วงอายุ ผู้ก่อเหตุ แผนภูมิแท่ง"
-        height={type === 'hbar' ? undefined : 360}
+        ariaLabel="ช่วงอายุ ผู้ก่อเหตุ"
+        height={type === 'bar' ? 360 : type === 'pie' || type === 'donut' ? 340 : undefined}
       />
     </Card>
   )
@@ -460,21 +549,26 @@ function AgeBandCard({ data }: { data: CategoryCount[] }) {
 function SubBlock({
   title,
   icon: Icon,
+  right,
   children,
   className = '',
 }: {
   title: string
   icon: LucideIcon
+  right?: ReactNode
   children: ReactNode
   /** Grid placement override — the odd fifth block spans both columns so `lg` has no empty cell. */
   className?: string
 }) {
   return (
-    <div className={`flex min-w-0 flex-col rounded-2xl border border-slate-100 bg-white p-4 ${className}`}>
-      <h4 className="mb-2 flex items-center gap-2 text-base font-bold text-slate-800">
-        <Icon size={18} strokeWidth={2.25} className="shrink-0 text-s2-700" aria-hidden />
-        {title}
-      </h4>
+    <div className={`flex min-w-0 flex-col rounded-2xl border border-slate-100 bg-white p-4 shadow-xs ${className}`}>
+      <div className="mb-2 flex items-center justify-between gap-2 flex-wrap">
+        <h4 className="flex items-center gap-2 text-base font-bold text-slate-800">
+          <Icon size={18} strokeWidth={2.25} className="shrink-0 text-s2-700" aria-hidden />
+          {title}
+        </h4>
+        {right}
+      </div>
       {children}
     </div>
   )
@@ -621,6 +715,11 @@ export default function SocialListeningSection({
     [suicideRows],
   )
 
+  const [outcomeType, setOutcomeType] = useChartType('s1-suicide-outcome', 'hbar', ['hbar', 'pie', 'donut'])
+  const [causeType, setCauseType] = useChartType('s1-suicide-cause', 'hbar', ['hbar', 'pie', 'donut'])
+  const [locationType, setLocationType] = useChartType('s1-suicide-location', 'hbar', ['hbar', 'pie', 'donut'])
+  const [methodType, setMethodType] = useChartType('s1-suicide-method', 'hbar', ['hbar', 'pie', 'donut'])
+
   // SPEC 6.4 item 3: zone-scoped -> one bar per province of that zone, same widget id.
   const zoneEventsData = useMemo(() => {
     if (isZoneScoped) return countBy(rows, (r) => r.province, ZONE_PROVINCES[effectiveZone as number] ?? [])
@@ -706,15 +805,7 @@ export default function SocialListeningSection({
           />
         </Span>
 
-        {/* 4 — patient status donut + 7-group bar (deck slides 15-16) */}
-        <Span className={HALF}>
-          <PatientStatusCard data={patientStatus} />
-        </Span>
-        <Span className={HALF}>
-          <PatientGroup7Card data={patientGroup7} />
-        </Span>
-
-        {/* 5 — events-per-province map (with companion Selected Area + Top 10 cards) */}
+        {/* 4 — events-per-province map (with companion Selected Area + Top 10 cards) */}
         <Span className={FULL}>
           <ThailandMap
             mode={zoneMode ? 'zone' : 'country'}
@@ -733,7 +824,7 @@ export default function SocialListeningSection({
           />
         </Span>
 
-        {/* 5b — top 10 provinces (rendered when the map's side cards are not shown) */}
+        {/* 4b — top 10 provinces (rendered when the map's side cards are not shown) */}
         {!showMapSideCards && (
           <Span className={HALF}>
             <SwitchableChart
@@ -743,7 +834,7 @@ export default function SocialListeningSection({
               icon={MapPin}
               data={topProvinces}
               defaultType="hbar"
-              allowedTypes={['hbar', 'bar']}
+              allowedTypes={['hbar', 'bar', 'pie', 'donut']}
               accent="s1"
               total={provinceTotal}
               unit="เหตุการณ์"
@@ -752,7 +843,7 @@ export default function SocialListeningSection({
           </Span>
         )}
 
-        {/* 5c — events by zone / (zone mode) by province */}
+        {/* 4c — events by zone / (zone mode) by province */}
         <Span className={FULL}>
           <SwitchableChart
             widgetId="s1-zone-events"
@@ -767,6 +858,14 @@ export default function SocialListeningSection({
             unit="เหตุการณ์"
             categoryHeader={isZoneScoped ? 'จังหวัด' : 'เขตสุขภาพ'}
           />
+        </Span>
+
+        {/* 5 — patient status donut + 7-group bar (deck slides 15-16) */}
+        <Span className={HALF}>
+          <PatientStatusCard data={patientStatus} />
+        </Span>
+        <Span className={HALF}>
+          <PatientGroup7Card data={patientGroup7} />
         </Span>
 
         {/* 6 — deaths / injured compared across the 7 groups (deck slide 17) */}
@@ -795,13 +894,18 @@ export default function SocialListeningSection({
               <EmptyBlock />
             ) : (
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-                <SubBlock title="ฆ่าตัวตาย สำเร็จ / ไม่สำเร็จ" icon={Activity}>
+                <SubBlock
+                  title="ฆ่าตัวตาย สำเร็จ / ไม่สำเร็จ"
+                  icon={Activity}
+                  right={<ChartSwitcher options={TOPN_SWITCH} current={outcomeType} onChange={setOutcomeType} size="sm" />}
+                >
                   <CategoryBars
                     data={suicideOutcome}
                     total={suicideOutcomeTotal}
+                    orientation={outcomeType}
                     colors={[PALETTE.suicide.success, PALETTE.suicide.fail]}
                     maxLabelChars={16}
-                    ariaLabel="ฆ่าตัวตาย สำเร็จ ไม่สำเร็จ แผนภูมิแท่ง"
+                    ariaLabel={`ฆ่าตัวตาย สำเร็จ ไม่สำเร็จ ${outcomeType === 'hbar' ? 'แผนภูมิแท่ง' : 'แผนภูมิวงกลม'}`}
                   />
                 </SubBlock>
 
@@ -809,12 +913,17 @@ export default function SocialListeningSection({
                   <GenderFigure title="เพศและช่วงอายุ" data={suicideGender} ageSplit={suicideAgeSplit} bare />
                 </SubBlock>
 
-                <SubBlock title={suicideCauseTitle} icon={AlertOctagon}>
+                <SubBlock
+                  title={suicideCauseTitle}
+                  icon={AlertOctagon}
+                  right={<ChartSwitcher options={TOPN_SWITCH} current={causeType} onChange={setCauseType} size="sm" />}
+                >
                   <CategoryBars
                     data={suicideCause}
                     total={suicideCauseTotal}
+                    orientation={causeType}
                     maxLabelChars={16}
-                    ariaLabel={`${suicideCauseTitle} แผนภูมิแท่ง`}
+                    ariaLabel={`${suicideCauseTitle} ${causeType === 'hbar' ? 'แผนภูมิแท่ง' : 'แผนภูมิวงกลม'}`}
                   />
                   {suicideCauseTotal > 0 && (
                     <DenominatorNote className="mt-3">
@@ -823,12 +932,17 @@ export default function SocialListeningSection({
                   )}
                 </SubBlock>
 
-                <SubBlock title={suicideLocationTitle} icon={MapPinned}>
+                <SubBlock
+                  title={suicideLocationTitle}
+                  icon={MapPinned}
+                  right={<ChartSwitcher options={TOPN_SWITCH} current={locationType} onChange={setLocationType} size="sm" />}
+                >
                   <CategoryBars
                     data={suicideLocation}
                     total={suicideLocationTotal}
+                    orientation={locationType}
                     maxLabelChars={16}
-                    ariaLabel={`${suicideLocationTitle} แผนภูมิแท่ง`}
+                    ariaLabel={`${suicideLocationTitle} ${locationType === 'hbar' ? 'แผนภูมิแท่ง' : 'แผนภูมิวงกลม'}`}
                   />
                   {suicideLocationTotal > 0 && (
                     <DenominatorNote className="mt-3">
@@ -837,12 +951,18 @@ export default function SocialListeningSection({
                   )}
                 </SubBlock>
 
-                <SubBlock title={suicideMethodTitle} icon={ListChecks} className="lg:col-span-2">
+                <SubBlock
+                  title={suicideMethodTitle}
+                  icon={ListChecks}
+                  className="lg:col-span-2"
+                  right={<ChartSwitcher options={TOPN_SWITCH} current={methodType} onChange={setMethodType} size="sm" />}
+                >
                   <CategoryBars
                     data={suicideMethod}
                     total={suicideMethodTotal}
+                    orientation={methodType}
                     maxLabelChars={16}
-                    ariaLabel={`${suicideMethodTitle} แผนภูมิแท่ง`}
+                    ariaLabel={`${suicideMethodTitle} ${methodType === 'hbar' ? 'แผนภูมิแท่ง' : 'แผนภูมิวงกลม'}`}
                   />
                   {suicideMethodTotal > 0 && (
                     <DenominatorNote className="mt-3">
@@ -862,9 +982,6 @@ export default function SocialListeningSection({
               </span>
               <span>
                 สายด่วนสุขภาพจิต <strong className="tabular-nums">1323</strong>
-              </span>
-              <span>
-                สมาคมสะมาริตันส์แห่งประเทศไทย <strong className="tabular-nums">02-113-6789</strong>
               </span>
             </div>
           </Card>
